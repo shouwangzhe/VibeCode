@@ -1,0 +1,138 @@
+# This workflow is used to update the custom tooling versions for the project.
+#
+# We prefer to use Dependabot to update external dependencies, but at this time it does not include Homebrew as a supported package manager (https://docs.github.com/en/code-security/dependabot/ecosystems-supported-by-dependabot/supported-ecosystems-and-repositories).
+# Furthermore, neither `swiftlint` nor `clang-format` are listed as dependencies in our repository, therefore also not picked up by Dependabot.
+#
+# Therefore we are using a custom workflow to update relevant files and open a pull request with the changes.
+
+name: "Automation: Update tooling versions"
+
+on:
+  schedule:
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+  pull_request:
+
+# Permissions configuration:
+# - 'contents: write' is required to allow the workflow to commit changes to the repository
+#   when updating the tooling version files and creating branches for pull requests.
+# - 'pull-requests: write' is required to allow the workflow to create pull requests
+#   using the peter-evans/create-pull-request action when tooling version updates are available.
+permissions:
+  contents: write
+  pull-requests: write
+
+# Concurrency configuration:
+# - For pull requests, we use a workflow-and-ref–scoped group to keep runs isolated per PR while
+#   still cancelling outdated runs on the same PR.
+# - For non-PR events (schedule, workflow_dispatch, pushes), we use a fixed global group so only
+#   one repository-wide run can execute at a time, preventing race conditions when creating
+#   branches and pull requests.
+# - We enable cancellation of in-progress runs because only the most recent run matters for
+#   version updates. This conserves GitHub Actions minutes and ensures we always work with the
+#   latest repository state.
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('{0}-{1}', github.workflow, github.ref) || 'auto-update-tools' }}
+  cancel-in-progress: true
+
+jobs:
+  # This job detects if the PR contains changes that require running auto-update-tools.
+  # If yes, the job will output a flag that will be used by the next job to run the auto-update-tools.
+  # If no, the job will output a flag that will be used by the next job to skip running the auto-update-tools.
+  # At the end of this workflow, we run a check that validates that either auto_update_tools-required-check passed or were
+  # skipped, which is called auto_update_tools-required-check.
+  files-changed:
+    name: Detect File Changes
+    runs-on: ubuntu-latest
+    # Map a step output to a job output
+    outputs:
+      run_auto_update_tools_for_prs: ${{ steps.changes.outputs.run_auto_update_tools_for_prs }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: Get changed files
+        id: changes
+        uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+        with:
+          token: ${{ github.token }}
+          filters: .github/file-filters.yml
+
+  auto-update-tools:
+    if: github.event_name != 'pull_request' || needs.files-changed.outputs.run_auto_update_tools_for_prs == 'true'
+    needs: files-changed
+    runs-on: macos-15
+    steps:
+      - name: Generate GitHub App Token
+        id: app_token
+        if: github.event_name != 'pull_request'
+        uses: actions/create-github-app-token@f8d387b68d61c58ab83c6c016672934102569859 # v3.0.0
+        with:
+          app-id: ${{ vars.SENTRY_DEPENDENCY_UPDATER_GITHUB_APP_ID }}
+          private-key: ${{ secrets.SENTRY_DEPENDENCY_UPDATER_GITHUB_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+      - name: Checkout Repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          token: ${{ github.event_name != 'pull_request' && steps.app_token.outputs.token || github.token }}
+      - name: Update Homebrew
+        run: brew update
+
+      - name: Install Tools
+        run: make init
+
+      - name: Update tooling versions
+        run: make update-versions
+
+      - name: Check tooling versions
+        run: make check-versions
+
+      - name: Print git status and changes
+        run: |
+          git status
+          git diff HEAD
+
+      - name: Create pull request for clang-format version
+        uses: peter-evans/create-pull-request@c0f553fe549906ede9cf27b5156039d195d2ece0 # v8.1.0
+        if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+        with:
+          token: ${{ steps.app_token.outputs.token }}
+          add-paths: scripts/.clang-format-version
+          branch: github-actions/auto-update-tools-clang-format
+          commit-message: "chore(deps): Update clang-format version"
+          delete-branch: true
+          title: "chore(deps): Update clang-format version"
+          sign-commits: true
+          base: main
+
+      - name: Create pull request for swiftlint version
+        uses: peter-evans/create-pull-request@c0f553fe549906ede9cf27b5156039d195d2ece0 # v8.1.0
+        if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+        with:
+          token: ${{ steps.app_token.outputs.token }}
+          add-paths: scripts/.swiftlint-version
+          branch: github-actions/auto-update-tools-swiftlint
+          commit-message: "chore(deps): Update swiftlint version"
+          delete-branch: true
+          title: "chore(deps): Update swiftlint version"
+          sign-commits: true
+          base: main
+
+      - name: Run CI Diagnostics
+        if: failure()
+        run: ./scripts/ci-diagnostics.sh
+
+  # This check validates that either auto-update-tools passed or was skipped, which allows us
+  # to make auto-update-tools a required check with only running the auto-update-tools when required.
+  # So, we don't have to run auto-update-tools, for example, for unrelated changes.
+  auto_update_tools-required-check:
+    needs: [files-changed, auto-update-tools]
+    name: Auto Update Tools
+    # This is necessary since a failed/skipped dependent job would cause this job to be skipped
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      # If any jobs we depend on fails gets cancelled or times out, this job will fail.
+      # Skipped jobs are not considered failures.
+      - name: Check for failures
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: |
+          echo "One of the auto-update-tools jobs has failed." && exit 1

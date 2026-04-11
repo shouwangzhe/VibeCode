@@ -1,0 +1,387 @@
+{
+  "recrash_report": {
+    "report": {
+      "version": "3.2.0",
+      "id": "8DF63D54-5F93-42AB-AC0B-E644E16E3FEF",
+      "process_name": "SomeBuggyApp",
+      "timestamp": 1580908733,
+      "type": "standard"
+    },
+    "binary_images": [
+      {
+        "image_addr": 4425015296,
+        "image_vmaddr": 4294967296,
+        "image_size": 1257472,
+        "name": "/Applications/SomeBuggyApp.app/Contents/MacOS/SomeBuggyApp",
+        "uuid": "0D197FE9-EE67-3A03-967B-23248EF4BD3B",
+        "cpu_type": 16777223,
+        "cpu_subtype": -2147483645,
+        "major_version": 0,
+        "minor_version": 0,
+        "revision_version": 0
+      },
+      {
+        "image_addr": 4428619776,
+        "image_vmaddr": 0,
+        "image_size": 2428928,
+        "name": "/Applications/SomeBuggyApp.app/Contents/Frameworks/MPLum4Framework.framework/Versions/A/MPLum4Framework",
+        "uuid": "8AF6C30B-5467-3BD3-9D46-08FE188172FA",
+        "cpu_type": 16777223,
+        "cpu_subtype": 3,
+        "major_version": 1,
+        "minor_version": 0,
+        "revision_version": 0
+      },
+      {
+        "image_addr": 4434939904,
+        "image_vmaddr": 0,
+        "image_size": 409600,
+        "name": "/Applications/SomeBuggyApp.app/Contents/Frameworks/Sentry.framework/Versions/A/Sentry",
+        "uuid": "D37577B6-9523-39FD-AA44-B63CBE9F6EBE",
+        "cpu_type": 16777223,
+        "cpu_subtype": 3,
+        "major_version": 1,
+        "minor_version": 0,
+        "revision_version": 0
+      },
+      {
+        "image_addr": 4435812352,
+        "image_vmaddr": 0,
+        "image_size": 970752,
+        "name": "/Applications/SomeBuggyApp.app/Contents/Frameworks/MPCore.framework/Versions/A/MPCore",
+        "uuid": "376079F5-C8B7-3285-9BDE-5C2C05034332",
+        "cpu_type": 16777223,
+        "cpu_subtype": 3,
+        "major_version": 1,
+        "minor_version": 0,
+        "revision_version": 0
+      },
+      {
+        "image_addr": 4441198592,
+        "image_vmaddr": 0,
+        "image_size": 380928,
+        "name": "/Applications/SomeBuggyApp.app/Contents/Frameworks/SBClasses.framework/Versions/A/SBClasses",
+        "uuid": "5BF57F26-8B8C-3256-8489-76E5D1DEA8DC",
+        "cpu_type": 16777223,
+        "cpu_subtype": 3,
+        "major_version": 1,
+        "minor_version": 0,
+        "revision_version": 0
+      },
+      {
+        "image_addr": 140734045409280,
+        "image_vmaddr": 140733984268288,
+        "image_size": 3964928,
+        "name": "/System/Library/Frameworks/Foundation.framework/Versions/C/Foundation",
+        "uuid": "4BEAB72D-10AA-3009-B0F5-B82B4FE1C441",
+        "cpu_type": 16777223,
+        "cpu_subtype": 3,
+        "major_version": 1671,
+        "minor_version": 15,
+        "revision_version": 0
+      },
+      {
+        "image_addr": 140734004797440,
+        "image_vmaddr": 140733943656448,
+        "image_size": 4718592,
+        "name": "/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation",
+        "uuid": "BF8A8279-9C5E-37C6-8426-90C8182EFBDD",
+        "cpu_type": 16777223,
+        "cpu_subtype": 8,
+        "major_version": 1671,
+        "minor_version": 15,
+        "revision_version": 0
+      },
+      {
+        "image_addr": 140734910537728,
+        "image_vmaddr": 140734849396736,
+        "image_size": 204800,
+        "name": "/usr/lib/libobjc.A.dylib",
+        "uuid": "722C0959-69B8-3843-B5EA-CDD8FAA91D5E",
+        "cpu_type": 16777223,
+        "cpu_subtype": 8,
+        "major_version": 228,
+        "minor_version": 0,
+        "revision_version": 0
+      },
+      {
+        "image_addr": 140734882287616,
+        "image_vmaddr": 140734821146624,
+        "image_size": 86016,
+        "name": "/usr/lib/libc++abi.dylib",
+        "uuid": "02753D3D-91C6-3670-8B5D-EBE040B516FC",
+        "cpu_type": 16777223,
+        "cpu_subtype": 3,
+        "major_version": 800,
+        "minor_version": 7,
+        "revision_version": 0
+      },
+      {
+        "image_addr": 140734930583552,
+        "image_vmaddr": 140734869442560,
+        "image_size": 270336,
+        "name": "/usr/lib/system/libdispatch.dylib",
+        "uuid": "F4260D89-F67D-30CB-AF61-7ED25CB687DB",
+        "cpu_type": 16777223,
+        "cpu_subtype": 3,
+        "major_version": 1173,
+        "minor_version": 0,
+        "revision_version": 3
+      },
+      {
+        "image_addr": 140734932267008,
+        "image_vmaddr": 140734871126016,
+        "image_size": 184320,
+        "name": "/usr/lib/system/libsystem_kernel.dylib",
+        "uuid": "4CE9D54A-A975-348E-B878-EE74EDFC956B",
+        "cpu_type": 16777223,
+        "cpu_subtype": 3,
+        "major_version": 6153,
+        "minor_version": 11,
+        "revision_version": 26
+      },
+      {
+        "image_addr": 140734933049344,
+        "image_vmaddr": 140734871908352,
+        "image_size": 45056,
+        "name": "/usr/lib/system/libsystem_pthread.dylib",
+        "uuid": "2EA6F95F-F264-30B6-8AF2-24197B5AED84",
+        "cpu_type": 16777223,
+        "cpu_subtype": 3,
+        "major_version": 416,
+        "minor_version": 11,
+        "revision_version": 1
+      },
+      {
+        "image_addr": 140734931283968,
+        "image_vmaddr": 140734870142976,
+        "image_size": 557056,
+        "name": "/usr/lib/system/libsystem_c.dylib",
+        "uuid": "2A5BFAFE-8214-3B35-AD46-C07A1A8B8941",
+        "cpu_type": 16777223,
+        "cpu_subtype": 3,
+        "major_version": 1353,
+        "minor_version": 11,
+        "revision_version": 2
+      },
+      {
+        "image_addr": 140734930853888,
+        "image_vmaddr": 140734869712896,
+        "image_size": 221184,
+        "name": "/usr/lib/system/libdyld.dylib",
+        "uuid": "98960E27-A08B-36DA-A5CB-8538B2D6757E",
+        "cpu_type": 16777223,
+        "cpu_subtype": 3,
+        "major_version": 732,
+        "minor_version": 8,
+        "revision_version": 0
+      }
+    ],
+    "process": {},
+    "system": {
+      "system_name": "macOS",
+      "system_version": "10.15",
+      "machine": "MacBookPro14,1",
+      "model": null,
+      "kernel_version": "Darwin Kernel Version 19.0.0: Wed Sep 25 20:18:50 PDT 2019; root:xnu-6153.11.26~2/RELEASE_X86_64",
+      "os_version": "19A583",
+      "jailbroken": false,
+      "boot_time": "2020-02-05T07:05:27Z",
+      "app_start_time": "2020-02-05T11:47:06Z",
+      "CFBundleExecutablePath": "/Applications/SomeBuggyApp.app/SomeBuggyApp",
+      "CFBundleExecutable": "SomeBuggyApp",
+      "CFBundleIdentifier": "com.test.buggy-app",
+      "CFBundleName": "SomeBuggyApp",
+      "CFBundleVersion": "5843",
+      "CFBundleShortVersionString": "4.1.1",
+      "app_uuid": "0D197FE9-EE67-3A03-967B-23248EF4BD3B",
+      "cpu_arch": "x86",
+      "cpu_type": 7,
+      "cpu_subtype": 8,
+      "binary_cpu_type": 16777223,
+      "binary_cpu_subtype": -2147483645,
+      "time_zone": "EET",
+      "process_name": "SomeBuggyApp",
+      "process_id": 1342,
+      "parent_process_id": 1,
+      "device_app_hash": "cbab3fc773c293be1b577516a696b27bbeb8100a",
+      "build_type": "debug",
+      "storage": 250685575168,
+      "memory": {
+        "size": 8589934592,
+        "usable": 7774527488,
+        "free": 43896832
+      },
+      "application_stats": {
+        "application_active": false,
+        "application_in_foreground": true,
+        "launches_since_last_crash": 33,
+        "sessions_since_last_crash": 33,
+        "active_time_since_last_crash": 0,
+        "background_time_since_last_crash": 0,
+        "sessions_since_launch": 1,
+        "active_time_since_launch": 0,
+        "background_time_since_launch": 0
+      }
+    },
+    "crash": {
+      "error": {
+        "mach": {
+          "exception": 10,
+          "exception_name": "EXC_CRASH",
+          "code": 0,
+          "subcode": 0
+        },
+        "signal": {
+          "signal": 6,
+          "name": "SIGABRT",
+          "code": 0
+        },
+        "address": 0
+      }
+    }
+  },
+  "report": {
+    "version": "3.2.0",
+    "id": "0F3F483F-754C-44BB-A7CC-623134AA00A8",
+    "process_name": null,
+    "timestamp": 1580908733,
+    "type": "minimal"
+  },
+  "crash": {
+    "error": {
+      "mach": {
+        "exception": 1,
+        "exception_name": "EXC_BAD_ACCESS",
+        "code": 1924143992,
+        "subcode": 8
+      },
+      "signal": {
+        "signal": 10,
+        "name": "SIGBUS",
+        "code": 0,
+        "code_name": "BUS_NOOP"
+      },
+      "address": 103544995715960,
+      "type": "mach"
+    },
+    "crashed_thread": {
+      "backtrace": {
+        "contents": [
+          {
+            "object_name": "libobjc.A.dylib",
+            "object_addr": 140734910537728,
+            "symbol_name": "objc_msgSend",
+            "symbol_addr": 140734910564480,
+            "instruction_addr": 140734910564509
+          },
+          {
+            "object_name": "CoreFoundation",
+            "object_addr": 140734004797440,
+            "symbol_name": "__CFPropertyListIsDictPlistAux",
+            "symbol_addr": 140734005127359,
+            "instruction_addr": 140734005127552
+          },
+          {
+            "object_name": "CoreFoundation",
+            "object_addr": 140734004797440,
+            "symbol_name": "CFPropertyListCreateData",
+            "symbol_addr": 140734005124042,
+            "instruction_addr": 140734005124171
+          },
+          {
+            "object_name": "SBClasses",
+            "object_addr": 4441198592,
+            "symbol_name": "SBSentryCrashReportWriteCallback",
+            "symbol_addr": 4441221913,
+            "instruction_addr": 4441221972
+          },
+          {
+            "object_name": "Sentry",
+            "object_addr": 4434939904,
+            "symbol_name": "sentrycrashcm_handleException",
+            "symbol_addr": 4435084016,
+            "instruction_addr": 4435084175
+          },
+          {
+            "object_name": "Sentry",
+            "object_addr": 4434939904,
+            "symbol_name": "handleUncaughtException",
+            "symbol_addr": 4435096272,
+            "instruction_addr": 4435096319
+          },
+          {
+            "object_name": "libobjc.A.dylib",
+            "object_addr": 140734910537728,
+            "symbol_name": "_ZL15_objc_terminatev",
+            "symbol_addr": 140734910622282,
+            "instruction_addr": 140734910622372
+          },
+          {
+            "object_name": "libc++abi.dylib",
+            "object_addr": 140734882287616,
+            "symbol_name": "_ZSt9terminatev",
+            "symbol_addr": 140734882356528,
+            "instruction_addr": 140734882356569
+          },
+          {
+            "object_name": "libdispatch.dylib",
+            "object_addr": 140734930583552,
+            "symbol_name": "_dispatch_client_callout",
+            "symbol_addr": 140734930597078,
+            "instruction_addr": 140734930597106
+          },
+          {
+            "object_name": "libsystem_pthread.dylib",
+            "object_addr": 140734933049344,
+            "symbol_name": "_pthread_wqthread",
+            "symbol_addr": 140734933059137,
+            "instruction_addr": 140734933059427
+          }
+        ],
+        "skipped": 0
+      },
+      "registers": {
+        "basic": {
+          "rax": 244282484071264,
+          "rbx": 123145333399712,
+          "rcx": 140735543235744,
+          "rdx": 140735543249680,
+          "rdi": 105553230044000,
+          "rsi": 140735093411809,
+          "rbp": 123145333399408,
+          "rsp": 123145333399304,
+          "r8": 140735543232064,
+          "r9": 0,
+          "r10": 103544995715936,
+          "r11": 140735093411809,
+          "r12": 200,
+          "r13": 105553230044000,
+          "r14": 105553230044000,
+          "r15": 123145333399816,
+          "rip": 140734910564509,
+          "rflags": 66054,
+          "cs": 43,
+          "fs": 0,
+          "gs": 0
+        },
+        "exception": {
+          "trapno": 14,
+          "err": 4,
+          "faultvaddr": 103544995715960
+        }
+      },
+      "index": 20,
+      "crashed": true,
+      "current_thread": false,
+      "stack": {
+        "grow_direction": "-",
+        "dump_start": 123145333399224,
+        "dump_end": 123145333399464,
+        "stack_pointer": 123145333399304,
+        "overflow": false,
+        "contents": "0100000000000000E05EDA0100700000AD4DAD67FF7F000003000000000000001800000000000000105FDA01007000008BBEAC67FF7F000003000000000000000000000000000000A0D40F8CFF7F0000F5256230FF7F0000B05FDA0100700000802EAD0400600000A0D40F8CFF7F0000802EAD0400600000030000000000000018000000000000001300E6554EEF02A6A060DA01007000004860DA01007000000300000000000000601BC806006000007046BD0801000000A05FDA010070000080296230FF7F000001000000000000004860DA010070000000463C01006000000300000000000000B05FDA0100700000"
+      }
+    }
+  }
+}

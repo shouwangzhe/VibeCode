@@ -1,0 +1,205 @@
+name: UI Tests
+on:
+  push:
+    branches:
+      - main
+      - v8.x
+
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+
+# Concurrency configuration:
+# - We use workflow-specific concurrency groups to prevent multiple UI test runs on the same code,
+#   as UI tests are resource-intensive and long-running operations.
+# - For pull requests, we cancel in-progress runs when new commits are pushed to provide faster
+#   feedback and avoid wasting expensive UI testing resources on outdated code.
+# - For main branch pushes, we never cancel UI tests to ensure complete validation of the user
+#   interface before the code reaches production, maintaining our quality standards.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  ready-to-merge-gate:
+    name: Ready-to-merge gate
+    uses: ./.github/workflows/ready-to-merge-workflow.yml
+
+  files-changed:
+    name: Detect File Changes
+    runs-on: ubuntu-latest
+    needs: ready-to-merge-gate
+    outputs:
+      run_ui_tests_for_prs: ${{ steps.changes.outputs.run_ui_tests_for_prs }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: Get changed files
+        id: changes
+        uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+        with:
+          token: ${{ github.token }}
+          filters: .github/file-filters.yml
+
+  ui-tests:
+    if: github.event_name != 'pull_request' || needs.files-changed.outputs.run_ui_tests_for_prs == 'true'
+    needs: files-changed
+    name: Test ${{matrix.name}} on ${{matrix.runner}} V3 # Up the version with every change to keep track of flaky tests
+    uses: ./.github/workflows/ui-tests-common.yml
+    strategy:
+      fail-fast: false
+      matrix:
+        runner:
+          - Cirrus Labs
+        job_id:
+          - ios_objc
+          - tvos_swift
+        include:
+          - job_id: ios_objc
+            name: iOS Objective-C
+            target: ios_objc
+            test_destination_os: "18.6"
+            device: iPhone 16 Pro
+            platform: iOS
+          - job_id: tvos_swift
+            name: tvOS Swift
+            target: tvos_swift
+            test_destination_os: "18.5"
+            device: "Apple TV"
+            platform: tvOS
+    with:
+      fastlane_command: ui_tests_${{matrix.target}}
+      xcode_version: 16.4
+      build_with_make: true
+      macos_version: "sequoia"
+      run_on_cirrus_labs: true
+      codecov_test_analytics: true
+      test-destination-os: ${{matrix.test_destination_os}}
+      device: ${{matrix.device}}
+      files_suffix: _${{matrix.target}}_${{matrix.runner}}
+      platform: ${{matrix.platform}}
+    secrets:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+  ui-tests-swift-ui:
+    if: github.event_name != 'pull_request' || needs.files-changed.outputs.run_ui_tests_for_prs == 'true'
+    needs: files-changed
+    name: Test SwiftUI on ${{matrix.runner}} V4 # Up the version with every change to keep track of flaky tests
+    uses: ./.github/workflows/ui-tests-common.yml
+    with:
+      fastlane_command: ui_tests_ios_swiftui
+      build_with_make: true
+      codecov_test_analytics: true
+      xcode_version: 16.4
+      macos_version: "sequoia"
+      run_on_cirrus_labs: true
+      test-destination-os: "18.6"
+      device: iPhone 16 Pro
+      files_suffix: _swiftui_-${{matrix.runner}}
+      platform: "iOS"
+    secrets:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runner:
+          - Cirrus Labs
+
+  ui-tests-swift:
+    if: github.event_name != 'pull_request' || needs.files-changed.outputs.run_ui_tests_for_prs == 'true'
+    needs: files-changed
+    name: Test Swift ${{matrix.name}} on ${{matrix.runner}} V5 # Up the version with every change to keep track of flaky tests
+    uses: ./.github/workflows/ui-tests-common.yml
+    strategy:
+      fail-fast: false
+      matrix:
+        runner:
+          - Cirrus Labs
+        job_id:
+          - ios_17
+          - ios_18
+          - ios_26
+        include:
+          - job_id: ios_17
+            name: iOS 17
+            runs_on: sequoia
+            xcode: 16.4
+            test_destination_os: "17.5"
+            platform: "iOS"
+            device: iPhone 15 Pro
+
+          - job_id: ios_18
+            name: iOS 18
+            runs_on: sequoia
+            xcode: 16.4
+            test_destination_os: "18.6"
+            platform: "iOS"
+            device: iPhone 16 Pro
+
+          - job_id: ios_26
+            name: iOS 26
+            runs_on: tahoe
+            xcode: "26.1.1"
+            test_destination_os: "26.1"
+            platform: "iOS"
+            device: iPhone 17 Pro
+    with:
+      fastlane_command: ui_tests_ios_swift
+      files_suffix: _xcode_${{matrix.xcode}}-${{matrix.device}}-${{matrix.runner}}
+      build_with_make: true
+      macos_version: ${{matrix.runs_on}}
+      run_on_cirrus_labs: true
+      codecov_test_analytics: true
+      xcode_version: ${{ matrix.xcode}}
+      test-destination-os: ${{matrix.test_destination_os}}
+      platform: ${{matrix.platform}}
+      device: ${{matrix.device}}
+    secrets:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+  ui-tests-swift6:
+    if: github.event_name != 'pull_request' || needs.files-changed.outputs.run_ui_tests_for_prs == 'true'
+    needs: files-changed
+    name: Test iOS Swift6 on ${{matrix.runner}} V3 # Up the version with every change to keep track of flaky tests
+    uses: ./.github/workflows/ui-tests-common.yml
+    strategy:
+      fail-fast: false
+      matrix:
+        runner:
+          - Cirrus Labs
+    with:
+      fastlane_command: ui_tests_ios_swift6
+      xcode_version: 16.4
+      build_with_make: true
+      macos_version: "sequoia"
+      run_on_cirrus_labs: true
+      codecov_test_analytics: true
+      device: iPhone 16 Pro
+      test-destination-os: "18.6"
+      platform: iOS
+      files_suffix: _swift6_-${{matrix.runner}}
+    secrets:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+  # This check validates that either UI tests passed or were skipped, which allows us
+  # to make UI tests a required check with only running the UI tests when required.
+  # So, we don't have to run UI tests, for example, for unrelated changes.
+  ui_tests-required-check:
+    needs:
+      [
+        files-changed,
+        ui-tests,
+        ui-tests-swift-ui,
+        ui-tests-swift,
+        ui-tests-swift6,
+        ready-to-merge-gate,
+      ]
+    name: UI Tests - Check
+    # This is necessary since a failed/skipped dependent job would cause this job to be skipped
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      # If any jobs we depend on fails gets cancelled or times out, this job will fail.
+      # Skipped jobs are not considered failures.
+      - name: Check for failures
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: |
+          echo "One of the UI test jobs has failed." && exit 1

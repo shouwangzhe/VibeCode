@@ -1,0 +1,22 @@
+version: 2
+updates:
+  - package-ecosystem: bundler
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    labels:
+      - "ready-to-merge"
+      - "dependencies"
+    ignore:
+      - dependency-name: fastlane
+        versions:
+          - 2.179.0
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: weekly
+    labels:
+      - "ready-to-merge"
+      - "dependencies"

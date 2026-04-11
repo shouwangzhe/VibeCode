@@ -1,0 +1,198 @@
+@_spi(Private) @testable import Sentry
+import XCTest
+
+final class SentryEnabledFeaturesBuilderTests: XCTestCase {
+
+    func testDefaultFeatures() throws {
+        // -- Arrange --
+        let options = Options()
+
+        // -- Act --
+        let features = SentryEnabledFeaturesBuilder.getEnabledFeatures(options: options)
+
+        // -- Assert --
+#if (os(iOS) || os(tvOS)) && !SENTRY_NO_UI_FRAMEWORK
+        XCTAssertEqual(features, ["captureFailedRequests", "experimentalViewRenderer", "dataSwizzling", "metrics"])
+#else
+        XCTAssertEqual(features, ["captureFailedRequests", "dataSwizzling", "metrics"])
+#endif
+    }
+
+    func testEnableAllFeatures() throws {
+        // -- Arrange --
+        let options = Options()
+        options.enableTimeToFullDisplayTracing = true
+        options.swiftAsyncStacktraces = true
+
+        // -- Act --
+        let features = SentryEnabledFeaturesBuilder.getEnabledFeatures(options: options)
+
+        // -- Assert --
+        XCTAssertTrue(features.contains("captureFailedRequests"))
+        XCTAssertTrue(features.contains("timeToFullDisplayTracing"))
+        XCTAssertTrue(features.contains("swiftAsyncStacktraces"))
+    }
+
+    func testEnablePersistingTracesWhenCrashing() {
+        // -- Arrange --
+        let options = Options()
+
+        options.enablePersistingTracesWhenCrashing = true
+
+        // -- Act --
+        let features = SentryEnabledFeaturesBuilder.getEnabledFeatures(options: options)
+
+        // -- Assert --
+        XCTAssertTrue(features.contains("persistingTracesWhenCrashing"))
+    }
+
+    func testGetEnabledFeatures_optionsAreNil_shouldReturnEmptyArray() {
+        // -- Act --
+        let result = SentryEnabledFeaturesBuilder.getEnabledFeatures(options: nil)
+
+        // -- Assert --
+        XCTAssertEqual(result, [])
+    }
+
+    func testEnableViewRendererV2_isEnabled_shouldAddFeature() throws {
+#if os(iOS)
+        // -- Arrange --
+        let options = Options()
+
+        options.sessionReplay.enableViewRendererV2 = true
+
+        // -- Act --
+        let features = SentryEnabledFeaturesBuilder.getEnabledFeatures(options: options)
+
+        // -- Assert --
+        XCTAssertTrue(features.contains("experimentalViewRenderer"))
+#else
+        throw XCTSkip("Test not supported on this platform")
+#endif
+    }
+
+    func testEnableViewRendererV2_isNotEnabled_shouldAddFeature() throws {
+#if os(iOS)
+        // -- Arrange --
+        let options = Options()
+
+        options.sessionReplay.enableViewRendererV2 = false
+
+        // -- Act --
+        let features = SentryEnabledFeaturesBuilder.getEnabledFeatures(options: options)
+
+        // -- Assert --
+        XCTAssertFalse(features.contains("experimentalViewRenderer"))
+#else
+        throw XCTSkip("Test not supported on this platform")
+#endif
+    }
+
+    func testEnableFastViewRendering_isEnabled_shouldAddFeature() throws {
+#if os(iOS)
+        // -- Arrange --
+        let options = Options()
+
+        options.sessionReplay.enableFastViewRendering = true
+
+        // -- Act --
+        let features = SentryEnabledFeaturesBuilder.getEnabledFeatures(options: options)
+
+        // -- Assert --
+        XCTAssertTrue(features.contains("fastViewRendering"))
+#else
+        throw XCTSkip("Test not supported on this platform")
+#endif
+    }
+
+    func testEnableDataSwizzling_isEnabled_shouldAddFeature() throws {
+        // -- Arrange --
+        let options = Options()
+
+        options.enableDataSwizzling = true
+
+        // -- Act --
+        let features = SentryEnabledFeaturesBuilder.getEnabledFeatures(options: options)
+
+        // -- Assert --
+        XCTAssertTrue(features.contains("dataSwizzling"))
+    }
+
+    func testEnableDataSwizzling_isDisabled_shouldNotAddFeature() throws {
+        // -- Arrange --
+        let options = Options()
+
+        options.enableDataSwizzling = false
+
+        // -- Act --
+        let features = SentryEnabledFeaturesBuilder.getEnabledFeatures(options: options)
+
+        // -- Assert --
+        XCTAssertFalse(features.contains("dataSwizzling"))
+    }
+
+    func testEnableFileManagerSwizzling_isEnabled_shouldAddFeature() throws {
+        // -- Arrange --
+        let options = Options()
+
+        options.enableFileManagerSwizzling = true
+
+        // -- Act --
+        let features = SentryEnabledFeaturesBuilder.getEnabledFeatures(options: options)
+
+        // -- Assert --
+        XCTAssertTrue(features.contains("fileManagerSwizzling"))
+    }
+
+    func testEnableFileManagerSwizzling_isDisabled_shouldNotAddFeature() throws {
+        // -- Arrange --
+        let options = Options()
+
+        options.enableFileManagerSwizzling = false
+
+        // -- Act --
+        let features = SentryEnabledFeaturesBuilder.getEnabledFeatures(options: options)
+
+        // -- Assert --
+        XCTAssertFalse(features.contains("fileManagerSwizzling"))
+    }
+
+    func testEnableUnhandledCPPExceptionsV2_shouldAddFeature() throws {
+        // -- Arrange --
+        let options = Options()
+
+        options.experimental.enableUnhandledCPPExceptionsV2 = true
+
+        // -- Act --
+        let features = SentryEnabledFeaturesBuilder.getEnabledFeatures(options: options)
+
+        // -- Assert --
+        XCTAssertTrue(features.contains("unhandledCPPExceptionsV2"))
+    }
+
+    func testEnableMetrics_isEnabled_shouldAddFeature() throws {
+        // -- Arrange --
+        let options = Options()
+
+        options.experimental.enableMetrics = true
+
+        // -- Act --
+        let features = SentryEnabledFeaturesBuilder.getEnabledFeatures(options: options)
+
+        // -- Assert --
+        XCTAssertTrue(features.contains("metrics"))
+    }
+
+    func testEnableMetrics_isDisabled_shouldNotAddFeature() throws {
+        // -- Arrange --
+        let options = Options()
+
+        options.experimental.enableMetrics = false
+
+        // -- Act --
+        let features = SentryEnabledFeaturesBuilder.getEnabledFeatures(options: options)
+
+        // -- Assert --
+        XCTAssertFalse(features.contains("metrics"))
+    }
+}

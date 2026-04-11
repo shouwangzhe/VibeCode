@@ -1,0 +1,238 @@
+name: Benchmarking
+on:
+  push:
+    branches:
+      - main
+      - v8.x
+
+  pull_request:
+
+# Concurrency configuration:
+# - We use workflow-specific concurrency groups to prevent multiple benchmark runs on the same code,
+#   as benchmarks are extremely resource-intensive and require dedicated device time on SauceLabs.
+# - For pull requests, we cancel in-progress runs when new commits are pushed to avoid wasting
+#   expensive external testing resources and provide timely performance feedback.
+# - For main branch pushes, we never cancel benchmarks to ensure we have complete performance
+#   baselines for every main branch commit, which are critical for performance regression detection.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  files-changed:
+    name: Detect File Changes
+    runs-on: ubuntu-latest
+    outputs:
+      run_benchmarking_for_prs: ${{ steps.changes.outputs.run_benchmarking_for_prs }}
+      is_dependabot: ${{ github.actor == 'dependabot[bot]' }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: Get changed files
+        id: changes
+        uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+        with:
+          token: ${{ github.token }}
+          filters: .github/file-filters.yml
+
+  skip-benchmarking-for-non-contributors:
+    name: Skip Benchmarking for Non-Contributors
+    runs-on: ubuntu-latest
+    needs: files-changed
+    # Skip for non-contributors, but not for dependabot (handled in build-benchmark-test-target)
+    if: github.event_name == 'pull_request' && needs.files-changed.outputs.run_benchmarking_for_prs == 'true' && !contains(fromJson('["OWNER", "MEMBER", "COLLABORATOR", "CONTRIBUTOR"]'), github.event.pull_request.author_association) && needs.files-changed.outputs.is_dependabot == 'false'
+    steps:
+      - name: Skip Benchmarking for Non-Contributors
+        run: |
+          echo "Skipping benchmarking for non-contributors"
+          exit 0
+
+  build-benchmark-test-target:
+    name: Build App and Test Runner
+    # Run for PRs with related changes (including dependabot) or non-PR events.
+    if: |
+      github.event_name != 'pull_request' || (
+        needs.files-changed.outputs.run_benchmarking_for_prs == 'true' && (
+          contains(
+          fromJson('["OWNER", "MEMBER", "COLLABORATOR", "CONTRIBUTOR"]'),
+          github.event.pull_request.author_association
+        ) ||
+        needs.files-changed.outputs.is_dependabot == 'true')
+      )
+    needs: files-changed
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - run: ./scripts/ci-select-xcode.sh 26.1.1
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@4dc28cf14d77b0afa6832d9765ac422dbf0dfedd # v1.298.0
+        with:
+          bundler-cache: true
+      - run: make init-ci-build
+      - run: make xcode-ci
+      - name: Install Sentry CLI
+        if: needs.files-changed.outputs.is_dependabot != 'true'
+        run: brew install getsentry/tools/sentry-cli
+
+      # When running the workflows for dependabot PRs, we need to skip code signing, because the code signing secrets are not available for dependabot PRs.
+      # We still want to run as much of the full workflow as possible, to verify the behaviour.
+      - name: Build iOS-Swift for tests
+        run: |
+          bundle exec fastlane build_ios_swift_for_tests \
+            skip_codesigning:${{ needs.files-changed.outputs.is_dependabot == 'true' }}
+        env:
+          FASTLANE_KEYCHAIN_PASSWORD: ${{ secrets.FASTLANE_KEYCHAIN_PASSWORD }}
+          MATCH_GIT_PRIVATE_KEY: ${{ secrets.MATCH_GIT_PRIVATE_KEY }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          MATCH_USERNAME: ${{ secrets.MATCH_USERNAME }}
+      - name: Build iOS benchmark test
+        run: |
+          bundle exec fastlane build_ios_benchmark_test \
+            skip_codesigning:${{ needs.files-changed.outputs.is_dependabot == 'true' }}
+        env:
+          FASTLANE_KEYCHAIN_PASSWORD: ${{ secrets.FASTLANE_KEYCHAIN_PASSWORD }}
+          MATCH_GIT_PRIVATE_KEY: ${{ secrets.MATCH_GIT_PRIVATE_KEY }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          MATCH_USERNAME: ${{ secrets.MATCH_USERNAME }}
+
+      - name: Upload dSYMs
+        if: needs.files-changed.outputs.is_dependabot != 'true'
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+        run: |
+          sentry-cli upload-dif \
+            --org sentry-sdks \
+            --project sentry-cocoa \
+            DerivedData/Build/Products/Debug-iphoneos/iOS-Swift.app.dSYM
+
+      - name: Upload Built Apps for SauceLabs
+        if: needs.files-changed.outputs.is_dependabot != 'true'
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        with:
+          name: benchmark-apps
+          path: |
+            **/Debug-iphoneos/iOS-Swift.app
+            **/Debug-iphoneos/iOS-Benchmarking-Runner.app
+
+      - name: Run CI Diagnostics
+        if: failure()
+        run: ./scripts/ci-diagnostics.sh
+
+  run-ui-tests-with-sauce:
+    name: Run Benchmarks ${{matrix.suite}}
+    # Run the job only for PRs with related changes (excluding dependabot) or non-PR events.
+    if: |
+      github.event_name != 'pull_request' || (
+        needs.files-changed.outputs.run_benchmarking_for_prs == 'true' &&
+        needs.files-changed.outputs.is_dependabot == 'false'
+      )
+    runs-on: ubuntu-latest
+    needs: [files-changed, build-benchmark-test-target]
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: ["High-end device", "Mid-range device", "Low-end device"]
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: benchmark-apps
+      - run: npm install -g saucectl@0.197.2
+      - name: Run Benchmarks in SauceLab
+        id: run-benchmarks-in-sauce-lab
+        env:
+          SAUCE_USERNAME: ${{ secrets.SAUCE_USERNAME }}
+          SAUCE_ACCESS_KEY: ${{ secrets.SAUCE_ACCESS_KEY }}
+        # Note: We are not setting continue-on-error here, because we want the step to be marked as failed.
+        run: |
+          set -o pipefail && saucectl run \
+            --select-suite "${{matrix.suite}}" \
+            --config .sauce/benchmarking-config.yml \
+            --tags benchmark \
+            --verbose \
+            2>&1 | tee output.log
+
+      - name: Recovery - Extract Test ID from output
+        id: should-retry-test
+        # Note: We need to use always() here, because the previous run step might be marked as failed.
+        if: ${{ always() && steps.run-benchmarks-in-sauce-lab.outcome == 'failure' }}
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        env:
+          SAUCE_USERNAME: ${{ secrets.SAUCE_USERNAME }}
+          SAUCE_ACCESS_KEY: ${{ secrets.SAUCE_ACCESS_KEY }}
+        with:
+          # Retry Logic: This step only runs when the benchmark test has failed.
+          # We determine if the failure was due to SauceLabs infrastructure issues
+          # (which can be fixed by retrying) or legitimate test failures (which cannot).
+          # SauceLabs internal errors frequently cause CI failures that can be resolved
+          # by re-running the test. See scripts/saucelabs-helpers.js for detailed logic.
+          script: |
+            const fs = require('fs');
+            const { execSync } = require('child_process');
+
+            console.log("Extracting test ID from output log");
+            const outputLog = fs.readFileSync('output.log', 'utf8');
+
+            // Lookup for the test ID in the output log
+            // Note: The CLI output might change over time, so this might need to be updated.
+            const match = outputLog.match(/https:\/\/app\.saucelabs\.com\/tests\/([^\s]+)/);
+            const testId = match?.[1] ?? '';
+
+            if (!testId) {
+              core.warning("No SauceLabs test ID found in CLI output, it might have changed, retrying...");
+              core.setOutput('RETRY_TEST', 'true');
+
+              return;
+            }
+
+            try {
+              console.log(`Checking if the test exists in SauceLabs: ${testId}`);
+              execSync(`saucectl jobs get ${testId}`, {
+                env: process.env,
+                stdio: 'inherit'
+              });
+
+              console.log("Test exists but failed, not retrying.");
+              core.setFailed('Test exists but failed');
+            } catch (error) {
+              console.log("Failed to get job, retrying...");
+              core.setOutput('RETRY_TEST', 'true');
+            }
+
+      - name: Run Benchmarks in SauceLab - Retry 1
+        id: run-benchmarks-in-sauce-lab-retry-1
+        # Note: We need to use always() here, because the previous run step might be marked as failed.
+        if: ${{ always() && steps.should-retry-test.outputs.RETRY_TEST == 'true' }}
+        env:
+          SAUCE_USERNAME: ${{ secrets.SAUCE_USERNAME }}
+          SAUCE_ACCESS_KEY: ${{ secrets.SAUCE_ACCESS_KEY }}
+        run: |
+          echo "::warning SauceLabs benchmark tests need to be retried"
+          saucectl run \
+            --select-suite "${{matrix.suite}}" \
+            --config .sauce/benchmarking-config.yml \
+            --tags benchmark \
+            --verbose
+
+      - name: Run CI Diagnostics
+        if: failure()
+        run: ./scripts/ci-diagnostics.sh
+
+  benchmarking-required-check:
+    needs:
+      [
+        files-changed,
+        build-benchmark-test-target,
+        run-ui-tests-with-sauce,
+        skip-benchmarking-for-non-contributors,
+      ]
+    name: Benchmarking
+    # This is necessary since a failed/skipped dependent job would cause this job to be skipped
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      # If any jobs we depend on fails gets cancelled or times out, this job will fail.
+      # Skipped jobs are not considered failures.
+      - name: Check for failures
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: |
+          echo "One of the benchmark jobs has failed." && exit 1

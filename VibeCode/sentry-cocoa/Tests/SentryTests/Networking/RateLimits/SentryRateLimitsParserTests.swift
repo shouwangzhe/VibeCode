@@ -1,0 +1,161 @@
+@_spi(Private) @testable import Sentry
+@_spi(Private) import SentryTestUtils
+import XCTest
+
+class SentryRateLimitsParserTests: XCTestCase {
+    
+    private var sut: RateLimitParser!
+    private var currentDate: TestCurrentDateProvider!
+    
+    override func setUp() {
+        super.setUp()
+        currentDate = TestCurrentDateProvider()
+        sut = RateLimitParser(currentDateProvider: currentDate)
+    }
+    
+    override func tearDown() {
+        super.tearDown()
+        clearTestState()
+    }
+    
+    func testOneQuotaOneCategory() {
+        let expected = [
+            SentryDataCategory.transaction.rawValue: currentDate.date().addingTimeInterval(50)
+        ]
+        
+        let actual = sut.parse("50:transaction:key")
+        
+        XCTAssertEqual(expected, actual)
+    }
+    
+    /**
+     * Relay can add reason codes to the rate limit response, see https://github.com/getsentry/relay/pull/850
+     * This test makes sure we just ignore the reason code.
+     *
+     */
+    func testIgnoreReasonCode() {
+        let expected = [
+            SentryDataCategory.transaction.rawValue: currentDate.date().addingTimeInterval(50)
+        ]
+        
+        let actual = sut.parse("50:transaction:key:reason")
+        
+        XCTAssertEqual(expected, actual)
+    }
+    
+    func testOneQuotaTwoCategories() {
+        let retryAfter = currentDate.date().addingTimeInterval(50)
+        let expected = [
+            SentryDataCategory.transaction.rawValue: retryAfter,
+            SentryDataCategory.error.rawValue: retryAfter
+        ]
+        
+        let actual = sut.parse("50:transaction;error:key")
+        
+        XCTAssertEqual(expected, actual)
+    }
+
+    func testTwoQuotasMultipleCategories() {
+        let retryAfter2700 = currentDate.date().addingTimeInterval(2_700)
+        let expected = [
+            SentryDataCategory.transaction.rawValue: currentDate.date().addingTimeInterval(50),
+            SentryDataCategory.error.rawValue: retryAfter2700,
+            SentryDataCategory.default.rawValue: retryAfter2700,
+            SentryDataCategory.attachment.rawValue: retryAfter2700
+        ]
+        
+        let actual = sut.parse("50:transaction:key, 2700:error;default;attachment:organization")
+        
+        XCTAssertEqual(expected, actual)
+    }
+    
+    func testKeepMaximumRateLimit() {
+        let expected = [
+            SentryDataCategory.transaction.rawValue: currentDate.date().addingTimeInterval(50)
+        ]
+        
+        let actual = sut.parse("3:transaction:key,50:transaction:key,5:transaction:key")
+        
+        XCTAssertEqual(expected, actual)
+    }
+    
+    func testInvalidRetryAfter() {
+        let expected = [SentryDataCategory.default.rawValue: currentDate.date().addingTimeInterval(1)]
+        
+        let actual = sut.parse("A1:transaction:key, 1:default:organization, -20:B:org, 0:event:key")
+        
+        XCTAssertEqual(expected, actual)
+    }
+    
+    func testAllCategories() {
+        let expected = [SentryDataCategory.all.rawValue: currentDate.date().addingTimeInterval(1_000)]
+        
+        let actual = sut.parse("1000::organization ")
+        
+        XCTAssertEqual(expected, actual)
+    }
+    
+    func testOneUnknownAndOneKnownCategory() {
+        let expected = [SentryDataCategory.error.rawValue: currentDate.date().addingTimeInterval(2)]
+        
+        let actual = sut.parse("2:foobar;error:organization")
+        
+        XCTAssertEqual(expected, actual)
+    }
+    
+    func testOnlyUnknownCategories() {
+        XCTAssertEqual([:], sut.parse("2:foobar:organization"))
+        XCTAssertEqual([:], sut.parse("2:foobar;foo;bar:organization"))
+    }
+    
+    func testAllKnownCategories() {
+        let date = currentDate.date().addingTimeInterval(1)
+        let expected = [
+            SentryDataCategory.default.rawValue: date,
+            SentryDataCategory.error.rawValue: date,
+            SentryDataCategory.session.rawValue: date,
+            SentryDataCategory.transaction.rawValue: date,
+            SentryDataCategory.attachment.rawValue: date,
+            SentryDataCategory.profile.rawValue: date,
+            SentryDataCategory.all.rawValue: date
+        ]
+        
+        let actual = sut.parse("1:default;foobar;error;session;transaction;attachment;profile:organization,1::key")
+        
+        XCTAssertEqual(expected, actual)
+    }
+    
+    func testWhitespacesSpacesAreRemoved() {
+        let retryAfter10 = currentDate.date().addingTimeInterval(10)
+        let expected = [SentryDataCategory.all.rawValue: currentDate.date().addingTimeInterval(67),
+                        SentryDataCategory.transaction.rawValue: retryAfter10,
+                        SentryDataCategory.error.rawValue: retryAfter10
+        ]
+        
+        let actual = sut.parse(" 67: :organization ,  10 :transa cti on; error: key")
+        
+        XCTAssertEqual(expected, actual)
+    }
+    
+    func testEmptyString() {
+        XCTAssertEqual([:], sut.parse(""))
+    }
+    
+    func testGarbageHeaders() {
+        XCTAssertEqual([:], sut.parse("Garb age13$@#"))
+        XCTAssertEqual([:], sut.parse(";;;!,  ;"))
+        XCTAssertEqual([:], sut.parse("  \n\n  "))
+        XCTAssertEqual([:], sut.parse("\n\n"))
+        XCTAssertEqual([:], sut.parse("50"))
+    }
+    
+    func testValidHeaderAndGarbage() {
+        let expected = [
+            SentryDataCategory.transaction.rawValue: currentDate.date().addingTimeInterval(50)
+        ]
+        
+        let actual = sut.parse("A9813Hell,50:transaction:key,123Garbage")
+        
+        XCTAssertEqual(expected, actual)
+    }
+}

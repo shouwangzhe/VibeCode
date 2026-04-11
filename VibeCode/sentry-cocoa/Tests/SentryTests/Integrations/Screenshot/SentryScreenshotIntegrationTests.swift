@@ -1,0 +1,258 @@
+#if os(iOS) || os(tvOS)
+
+@_spi(Private) @testable import Sentry
+@_spi(Private) @testable import SentryTestUtils
+import XCTest
+
+class SentryScreenshotIntegrationTests: XCTestCase {
+    
+    private class Fixture {
+        let screenshotSource: TestSentryScreenshotSource
+        let defaultOptions: Options
+
+        init() {
+            let redactOptions = SentryViewScreenshotOptions()
+            let renderer = TestSentryViewRenderer()
+            let photographer = TestSentryViewPhotographer(
+                renderer: renderer,
+                redactOptions: redactOptions
+            )
+            let source = TestSentryScreenshotSource(photographer: photographer)
+            source.result = [Data(count: 10)]
+            screenshotSource = source
+            SentryDependencyContainer.sharedInstance().screenshotSource = source
+            
+            defaultOptions = Options()
+            defaultOptions.attachScreenshot = true
+        }
+        
+        func getSut(options: Options? = nil) throws -> SentryScreenshotIntegration< SentryDependencyContainer> {
+            return try XCTUnwrap(SentryScreenshotIntegration(with: options ?? defaultOptions, dependencies: SentryDependencyContainer.sharedInstance()))
+        }
+    }
+
+    private var fixture: Fixture!
+    
+    override func setUp() {
+        super.setUp()
+        fixture = Fixture()
+    }
+    
+    override func tearDown() {
+        super.tearDown()
+        clearTestState()
+    }
+
+    func test_attachScreenshot_disabled() {
+        SentrySDK.start {
+            $0.removeAllIntegrations()
+            $0.attachScreenshot = false
+        }
+        XCTAssertEqual(SentrySDKInternal.currentHub().getClient()?.attachmentProcessors.count, 0)
+        XCTAssertFalse(sentrycrash_hasSaveScreenshotCallback())
+    }
+    
+    func test_attachScreenshot_enabled() {
+        SentrySDK.start {
+            $0.removeAllIntegrations()
+            $0.attachScreenshot = true
+        }
+        XCTAssertEqual(SentrySDKInternal.currentHub().getClient()?.attachmentProcessors.count, 1)
+        XCTAssertTrue(sentrycrash_hasSaveScreenshotCallback())
+    }
+    
+    func test_uninstall() {
+        SentrySDK.start {
+            $0.removeAllIntegrations()
+            $0.attachScreenshot = true
+        }
+        SentrySDK.close()
+        
+        XCTAssertNil(SentrySDKInternal.currentHub().getClient()?.attachmentProcessors)
+        XCTAssertFalse(sentrycrash_hasSaveScreenshotCallback())
+    }
+    
+    func test_attachScreenShot_withError() throws {
+        let sut = try fixture.getSut()
+        defer {
+            sut.uninstall()
+        }
+
+        let event = Event(error: NSError(domain: "", code: -1))
+        
+        let newAttachmentList = sut.processAttachments([], for: event)
+        
+        XCTAssertEqual(newAttachmentList.count, 1)
+    }
+    
+    func test_attachScreenShot_withException() throws {
+        let sut = try fixture.getSut()
+        defer {
+            sut.uninstall()
+        }
+        let event = Event()
+        event.exceptions = [Exception(value: "", type: "")]
+        
+        let newAttachmentList = sut.processAttachments([], for: event)
+        
+        XCTAssertEqual(newAttachmentList.count, 1)
+    }
+    
+    func test_attachScreenShot_withError_keepAttachments() throws {
+        let sut = try fixture.getSut()
+        defer {
+            sut.uninstall()
+        }
+        let event = Event(error: NSError(domain: "", code: -1))
+        
+        let attachment = Attachment(data: Data(), filename: "Some Attachment")
+        
+        let newAttachmentList = sut.processAttachments([attachment], for: event)
+        
+        XCTAssertEqual(newAttachmentList.count, 2)
+        XCTAssertEqual(newAttachmentList.first, attachment)
+    }
+    
+    func test_attachScreenShot_withException_keepAttachments() throws {
+        let sut = try fixture.getSut()
+        defer {
+            sut.uninstall()
+        }
+        let event = Event()
+        event.exceptions = [Exception(value: "", type: "")]
+        
+        let attachment = Attachment(data: Data(), filename: "Some Attachment")
+        
+        let newAttachmentList = sut.processAttachments([attachment], for: event)
+        
+        XCTAssertEqual(newAttachmentList.count, 2)
+        XCTAssertEqual(newAttachmentList.first, attachment)
+    }
+    
+    func test_noScreenshot_attachment() throws {
+        let sut = try fixture.getSut()
+        defer {
+            sut.uninstall()
+        }
+        let event = Event()
+        
+        let newAttachmentList = sut.processAttachments([], for: event)
+        
+        XCTAssertEqual(newAttachmentList.count, 0)
+    }
+    
+    func test_noScreenShot_FatalEvent() throws {
+        let sut = try fixture.getSut()
+        defer {
+            sut.uninstall()
+        }
+        let event = Event(error: NSError(domain: "", code: -1))
+        event.isFatalEvent = true
+        
+        let newAttachmentList = sut.processAttachments([], for: event)
+        
+        XCTAssertEqual(newAttachmentList.count, 0)
+    }
+
+#if os(iOS)
+    func test_noScreenShot_MetricKitEvent() throws {
+        let sut = try fixture.getSut()
+        defer {
+            sut.uninstall()
+        }
+        
+        let newAttachmentList = sut.processAttachments([], for: TestData.metricKitEvent)
+        
+        XCTAssertEqual(newAttachmentList.count, 0)
+    }
+#endif // os(iOS)
+    
+    func test_NoScreenShot_WhenDiscardedInCallback() throws {
+        let expectation = expectation(description: "BeforeCaptureScreenshot must be called.")
+        
+        let options = Options()
+        options.attachScreenshot = true
+        options.beforeCaptureScreenshot = { _ in
+            expectation.fulfill()
+            return false
+        }
+        
+        let sut = try fixture.getSut(options: options)
+        defer {
+            sut.uninstall()
+        }
+
+        let newAttachmentList = sut.processAttachments([], for: Event(error: NSError(domain: "", code: -1)))
+        
+        wait(for: [expectation], timeout: 1.0)
+        
+        XCTAssertEqual(newAttachmentList.count, 0)
+    }
+    
+    func test_noScreenshot_keepAttachment() throws {
+        let sut = try fixture.getSut()
+        defer {
+            sut.uninstall()
+        }
+        let event = Event()
+        
+        let attachment = Attachment(data: Data(), filename: "Some Attachment")
+        
+        let newAttachmentList = sut.processAttachments([attachment], for: event)
+        
+        XCTAssertEqual(newAttachmentList.count, 1)
+        XCTAssertEqual(newAttachmentList.first, attachment)
+    }
+    
+    func test_Attachments_Info() throws {
+        let sut = try fixture.getSut()
+        defer {
+            sut.uninstall()
+        }
+
+        let event = Event(error: NSError(domain: "", code: -1))
+        fixture.screenshotSource.result = [Data(repeating: 0, count: 1), Data(repeating: 0, count: 2), Data(repeating: 0, count: 3)]
+        
+        let newAttachmentList = sut.processAttachments([], for: event)
+        
+        XCTAssertEqual(newAttachmentList.count, 3)
+        XCTAssertEqual(try XCTUnwrap(newAttachmentList.first).filename, "screenshot.png")
+        XCTAssertEqual(try XCTUnwrap(newAttachmentList.element(at: 1)).filename, "screenshot-2.png")
+        XCTAssertEqual(try XCTUnwrap(newAttachmentList.element(at: 2)).filename, "screenshot-3.png")
+        
+        XCTAssertEqual(try XCTUnwrap(newAttachmentList.first).contentType, "image/png")
+        XCTAssertEqual(try XCTUnwrap(newAttachmentList.element(at: 1)).contentType, "image/png")
+        XCTAssertEqual(try XCTUnwrap(newAttachmentList.element(at: 2)).contentType, "image/png")
+        
+        XCTAssertEqual(try XCTUnwrap(newAttachmentList.first).data?.count, 1)
+        XCTAssertEqual(try XCTUnwrap(newAttachmentList.element(at: 1)).data?.count, 2)
+        XCTAssertEqual(try XCTUnwrap(newAttachmentList.element(at: 2)).data?.count, 3)
+        
+    }
+    
+    func test_backgroundForAppHangs() throws {
+        let sut = try fixture.getSut()
+        defer {
+            sut.uninstall()
+        }
+        
+        let event = Event()
+        event.exceptions = [Sentry.Exception(value: "test", type: "App Hanging")]
+
+        let ex = expectation(description: "Attachment Added")
+        
+        fixture.screenshotSource.processScreenshotsCallback = {
+            XCTFail("Should not add screenshots to App Hanging events")
+        }
+        
+        DispatchQueue.global().async {
+            _ = sut.processAttachments([], for: event)
+            ex.fulfill()
+        }
+        
+        wait(for: [ex], timeout: 1)
+    }
+    
+}
+
+#endif // os(iOS) || os(tvOS)

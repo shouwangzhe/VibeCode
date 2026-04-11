@@ -1,0 +1,207 @@
+{
+  "binary_images": [
+    {
+      "cpu_subtype": 9,
+      "cpu_type": 12,
+      "image_addr": 32768,
+      "image_size": 282624,
+      "name": "/var/mobile/Applications/B19FDF7E-768B-42D9-88E7-80F757E22883/Crash-Tester.app/Crash-Tester",
+      "uuid": "99E112D2-0CB4-3F73-BDA6-BCFC1F190724"
+    },
+    {
+      "cpu_subtype": 9,
+      "cpu_type": 12,
+      "image_addr": 828243968,
+      "image_size": 3727360,
+      "name": "/System/Library/Frameworks/UIKit.framework/UIKit",
+      "uuid": "C271B784-64D9-3CB7-BF28-C6E49DF293BA"
+    },
+    {
+      "cpu_subtype": 9,
+      "cpu_type": 12,
+      "image_addr": 827195392,
+      "image_size": 942080,
+      "name": "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation",
+      "uuid": "A8444F99-7111-304C-9571-B3FF974B769C"
+    },
+    {
+      "cpu_subtype": 9,
+      "cpu_type": 12,
+      "image_addr": 886771712,
+      "image_size": 1179648,
+      "name": "/System/Library/Frameworks/Foundation.framework/Foundation",
+      "uuid": "09FF3681-78C5-321C-9715-B9C8D491D53F"
+    }
+  ],
+  "crash": {
+    "diagnosis": "Application threw exception NSInvalidArgumentException: -[__NSArrayI objectForKey:]: unrecognized selector sent to instance 0x1e59bc50\nOriginated at or in a subcall of -[Crasher throwException]",
+    "error": {
+      "address": 0,
+      "mach": {
+        "code": 0,
+        "exception": 10,
+        "exception_name": "EXC_CRASH",
+        "subcode": 0
+      },
+      "nsexception": {
+        "name": "NSInvalidArgumentException",
+        "reason": "-[__NSArrayI objectForKey:]: unrecognized selector sent to instance 0x1e59bc50",
+        "referenced_object": {
+          "address": 509197392,
+          "class": "__NSArrayI",
+          "first_object": {
+            "address": 345460,
+            "class": "NSCFString",
+            "type": "objc_object",
+            "value": "Hello World"
+          },
+          "last_deallocated_obj": "__NSArrayI",
+          "type": "objc_object"
+        }
+      },
+      "signal": {
+        "code": 0,
+        "name": "SIGABRT",
+        "signal": 6
+      },
+      "type": "nsexception"
+    },
+    "threads": [
+      {
+        "backtrace": {
+          "contents": [
+            {
+              "instruction_addr": 827844157,
+              "object_addr": 827195392,
+              "object_name": "CoreFoundation",
+              "symbol_addr": 827844060,
+              "symbol_name": "__exceptionPreprocess"
+            },
+            {
+              "instruction_addr": 827859391,
+              "object_addr": 827195392,
+              "object_name": "CoreFoundation",
+              "symbol_addr": 827859288,
+              "symbol_name": "-[NSObject(NSObject) doesNotRecognizeSelector:]"
+            },
+            {
+              "instruction_addr": 827856457,
+              "object_addr": 827195392,
+              "object_name": "CoreFoundation",
+              "symbol_addr": 827855948,
+              "symbol_name": "___forwarding___"
+            },
+            {
+              "instruction_addr": 827294080,
+              "object_addr": 827195392,
+              "object_name": "CoreFoundation",
+              "symbol_addr": 827294032,
+              "symbol_name": "_CF_forwarding_prep_0"
+            },
+            {
+              "instruction_addr": 63193,
+              "object_addr": 32768,
+              "object_name": "Crash-Tester",
+              "symbol_addr": 63092,
+              "symbol_name": "-[Crasher throwException]"
+            },
+            {
+              "instruction_addr": 60719,
+              "object_addr": 32768,
+              "object_name": "Crash-Tester",
+              "symbol_addr": 60660,
+              "symbol_name": "-[CommandEntry executeWithViewController:]"
+            },
+            {
+              "instruction_addr": 828426247,
+              "object_addr": 828243968,
+              "object_name": "UIKit",
+              "symbol_addr": 828425576,
+              "symbol_name": "UIApplicationMain"
+            },
+            {
+              "instruction_addr": 38803,
+              "object_addr": 32768,
+              "object_name": "Crash-Tester",
+              "symbol_addr": 38636,
+              "symbol_name": "main"
+            },
+            {
+              "instruction_addr": 38632,
+              "object_addr": 32768,
+              "object_name": "Crash-Tester",
+              "symbol_addr": 38592,
+              "symbol_name": "start"
+            }
+          ],
+          "skipped": 0
+        },
+        "crashed": true,
+        "current_thread": true,
+        "dispatch_queue": "apple.main-thread",
+        "index": 0
+      }
+    ]
+  },
+  "process": {},
+  "report": {
+    "id": "1DFC2552-8F7C-4D14-B0A8-5FE04E5AE35E",
+    "process_name": "Crash-Tester",
+    "timestamp": "1970-01-17T19:18:32Z",
+    "type": "standard",
+    "version": {
+      "major": 2,
+      "minor": 0
+    }
+  },
+  "system": {
+    "CFBundleExecutable": "Crash-Tester",
+    "CFBundleExecutablePath": "/var/mobile/Applications/B19FDF7E-768B-42D9-88E7-80F757E22883/Crash-Tester.app/Crash-Tester",
+    "CFBundleIdentifier": "org.stenerud.Crash-Tester",
+    "CFBundleName": "Crash-Tester",
+    "CFBundleShortVersionString": "1.0",
+    "CFBundleVersion": "1.0",
+    "app_start_time": "1970-01-17T19:18:27Z",
+    "app_uuid": "99E112D2-0CB4-3F73-BDA6-BCFC1F190724",
+    "application_stats": {
+      "active_time_since_last_crash": 5.26027,
+      "active_time_since_launch": 5.26027,
+      "application_active": true,
+      "application_in_foreground": true,
+      "background_time_since_last_crash": 0,
+      "background_time_since_launch": 0,
+      "launches_since_last_crash": 3,
+      "sessions_since_last_crash": 3,
+      "sessions_since_launch": 1
+    },
+    "boot_time": "1970-01-07T07:57:55Z",
+    "cpu_arch": "armv7",
+    "device_app_hash": "fc217c5977c6b6790ea1d618461e2e1b04293b13",
+    "jailbroken": true,
+    "kernel_version": "Darwin Kernel Version 11.0.0: Wed Mar 30 18:51:10 PDT 2011; root:xnu-1735.46~10/RELEASE_ARM_S5L8930X",
+    "machine": "iPhone3,1",
+    "memory": {
+      "free": 133308416,
+      "size": 527433728,
+      "usable": 440909824
+    },
+    "model": "N90AP",
+    "os_version": "8J2",
+    "parent_process_id": 1,
+    "parent_process_name": "launchd",
+    "process_id": 1055,
+    "process_name": "Crash-Tester",
+    "system_name": "iPhone OS",
+    "system_version": "4.3.3",
+    "time_zone": "JST"
+  },
+  "user": {
+    "\"quoted\" key": "blah",
+    "bslash value": "bslash\\",
+    "bslash\\key": "x",
+    "intl2": "テスト２",
+    "quoted value": "\"quote\"",
+    "test": "test",
+    "テスト": "intl"
+  }
+}

@@ -1,0 +1,568 @@
+@_spi(Private) @testable import Sentry
+import SentryTestUtils
+import XCTest
+
+final class SentryBreadcrumbTrackerTests: XCTestCase {
+    
+    private var delegate: SentryBreadcrumbTestDelegate!
+    
+    override func setUp() {
+        super.setUp()
+        delegate = SentryBreadcrumbTestDelegate()
+    }
+    
+    override func tearDown() {
+        super.tearDown()
+        delegate = nil
+        clearTestState()
+    }
+    
+#if os(iOS) || os(tvOS)
+    func testStopRemovesSwizzleSendAction() {
+        let sut = SentryBreadcrumbTracker(reportAccessibilityIdentifier: true)
+
+        sut.start(with: delegate)
+        sut.startSwizzle()
+        sut.stop()
+
+        XCTAssertEqual(0, SentrySwizzleWrapper.sentrySwizzleSendActionCallbacks.count)
+    }
+    
+    func testNetworkConnectivityChangeBreadcrumbs() throws {
+        let testReachability = TestSentryReachability()
+        
+        SentryDependencyContainer.sharedInstance().reachability = testReachability
+        
+        let sut = SentryBreadcrumbTracker(reportAccessibilityIdentifier: true)
+        sut.start(with: delegate)
+        let states: [SentryConnectivity] = [.cellular,
+                                            .wiFi,
+                                            .none,
+                                            .wiFi,
+                                            .cellular,
+                                            .wiFi
+        ]
+        states.forEach {
+            testReachability.setReachabilityState(state: $0)
+        }
+        sut.stop()
+        XCTAssertEqual(delegate.addCrumbInvocations.count, states.count + 1) // 1 breadcrumb for the tracker start
+        try states.enumerated().forEach {
+            let crumb = delegate.addCrumbInvocations.invocations[$0.offset + 1]
+            XCTAssertEqual(crumb.type, "connectivity")
+            XCTAssertEqual(crumb.category, "device.connectivity")
+            XCTAssertEqual(try XCTUnwrap(crumb.data?["connectivity"] as? String), $0.element.toString())
+        }
+    }
+    
+    func testNetworkConnectivityBreadcrumbForSessionReplay() throws {
+        let testReachability = TestSentryReachability()
+        SentryDependencyContainer.sharedInstance().reachability = testReachability
+        let sut = SentryBreadcrumbTracker(reportAccessibilityIdentifier: true)
+        sut.start(with: delegate)
+        testReachability.setReachabilityState(state: .cellular)
+        sut.stop()
+        
+        guard let breadcrumb = delegate.addCrumbInvocations.invocations.dropFirst().first else {
+            XCTFail("No connectivity breadcrumb")
+            return
+        }
+        
+        let breadcrumbConverter = SentrySRDefaultBreadcrumbConverter()
+        let result = try XCTUnwrap(breadcrumbConverter.convert(from: breadcrumb) as? SentryRRWebBreadcrumbEvent)
+        
+        let crumbData = try XCTUnwrap(result.data)
+        let payload = try XCTUnwrap(crumbData["payload"] as? [String: Any])
+        let payloadData = try XCTUnwrap(payload["data"] as? [String: Any])
+        
+        XCTAssertEqual(payload["category"] as? String, "device.connectivity")
+        XCTAssertEqual(payloadData["state"] as? String, "cellular")
+    }
+    
+    func testSwizzlingStarted_ViewControllerAppears_AddsUILifeCycleBreadcrumb() throws {
+        let testReachability = TestSentryReachability()
+        
+        // We already test the network breadcrumbs in a test above. Using the `TestReachability`
+        // makes this test more stable, as using the real implementation sometimes leads to
+        // test failure, cause sometimes the dispatch queue responsible for reporting the reachability
+        // status takes some time and then there isn't a network breadcrumb available. This test
+        // doesn't validate the network breadcrumb anyways.
+        SentryDependencyContainer.sharedInstance().reachability = testReachability
+        
+        let scope = Scope()
+        let client = TestClient(options: Options())
+        let hub = TestHub(client: client, andScope: scope)
+        SentrySDKInternal.setCurrentHub(hub)
+        
+        let sut = SentryBreadcrumbTracker(reportAccessibilityIdentifier: true)
+        sut.start(with: delegate)
+        sut.startSwizzle()
+        
+        // Using UINavigationController as a parent doesn't work on tvOS 17.0
+        // for an unknown reason. Therefore, we manually set the parent.
+        class ParentUIViewController: UIViewController {
+            
+        }
+        let parentController = ParentUIViewController()
+        let viewController = UIViewController()
+        parentController.addChild(viewController)
+        viewController.title = "test title"
+        
+        print("delegate: \(String(describing: delegate))")
+        print("tracker: \(sut); SentryBreadcrumbTracker.delegate: \(String(describing: Dynamic(sut).delegate.asObject))")
+        viewController.viewDidAppear(false)
+        
+        let crumbs = delegate.addCrumbInvocations.invocations
+        
+        // one breadcrumb for starting the tracker, one for the first reachability breadcrumb and one final one for the swizzled viewDidAppear
+        guard crumbs.count == 2 else {
+            XCTFail("Expected exactly 2 breadcrumbs, got: \(crumbs)")
+            return
+        }
+        
+        let lifeCycleCrumb = try XCTUnwrap(crumbs.element(at: 1))
+        XCTAssertEqual("navigation", lifeCycleCrumb.type)
+        XCTAssertEqual("ui.lifecycle", lifeCycleCrumb.category)
+        XCTAssertEqual("false", lifeCycleCrumb.data?["beingPresented"] as? String)
+        XCTAssertEqual("UIViewController", lifeCycleCrumb.data?["screen"] as? String)
+        XCTAssertEqual("test title", lifeCycleCrumb.data?["title"] as? String)
+        XCTAssertEqual("false", lifeCycleCrumb.data?["beingPresented"] as? String)
+        XCTAssertEqual("ParentUIViewController", lifeCycleCrumb.data?["parentViewController"] as? String)
+        
+        clearTestState()
+    }
+    
+    func testNavigationBreadcrumbForSessionReplay() throws {
+        //Call the previous test to create the breadcrumb into the delegate
+        try testSwizzlingStarted_ViewControllerAppears_AddsUILifeCycleBreadcrumb()
+        
+        let sut = SentrySRDefaultBreadcrumbConverter()
+        
+        guard let crumb = delegate.addCrumbInvocations.invocations.dropFirst().first else {
+            XCTFail("No navigation breadcrumb")
+            return
+        }
+        let result = sut.convert(from: crumb)
+        
+        let event = result?.serialize()
+        let eventData = event?["data"] as? [String: Any]
+        let eventPayload = eventData?["payload"] as? [String: Any]
+        let payloadData = eventPayload?["data"] as? [String: Any]
+        
+        XCTAssertEqual(event?["type"] as? Int, 5)
+        XCTAssertEqual(eventData?["tag"] as? String, "breadcrumb")
+        XCTAssertEqual(eventPayload?["category"] as? String, "navigation")
+        XCTAssertEqual(payloadData?["to"] as? String, "UIViewController")
+    }
+    
+    func testWillEnterForeground_shouldAddForegroundBreadcrumb() throws {
+        let tracker = SentryBreadcrumbTracker(reportAccessibilityIdentifier: true)
+        tracker.start(with: delegate)
+
+        NotificationCenter.default.post(name: UIApplication.willEnterForegroundNotification, object: nil)
+
+        let crumb = try XCTUnwrap(delegate.addCrumbInvocations.invocations.first(where: { $0.category == "app.lifecycle" }))
+        XCTAssertEqual(crumb.type, "navigation")
+        XCTAssertEqual(crumb.level, .info)
+        XCTAssertEqual(crumb.data?["state"] as? String, "foreground")
+    }
+
+    func testDidBecomeActive_shouldAddActiveBreadcrumb() throws {
+        let tracker = SentryBreadcrumbTracker(reportAccessibilityIdentifier: true)
+        tracker.start(with: delegate)
+
+        NotificationCenter.default.post(name: UIApplication.didBecomeActiveNotification, object: nil)
+
+        let crumb = try XCTUnwrap(delegate.addCrumbInvocations.invocations.first(where: { $0.category == "app.lifecycle" }))
+        XCTAssertEqual(crumb.type, "navigation")
+        XCTAssertEqual(crumb.level, .info)
+        XCTAssertEqual(crumb.data?["state"] as? String, "active")
+    }
+
+    func testWillResignActive_shouldAddInactiveBreadcrumb() throws {
+        let tracker = SentryBreadcrumbTracker(reportAccessibilityIdentifier: true)
+        tracker.start(with: delegate)
+
+        NotificationCenter.default.post(name: UIApplication.willResignActiveNotification, object: nil)
+
+        let crumb = try XCTUnwrap(delegate.addCrumbInvocations.invocations.first(where: { $0.category == "app.lifecycle" }))
+        XCTAssertEqual(crumb.type, "navigation")
+        XCTAssertEqual(crumb.level, .info)
+        XCTAssertEqual(crumb.data?["state"] as? String, "inactive")
+    }
+
+    func testDidEnterBackground_shouldAddBackgroundBreadcrumb() throws {
+        let tracker = SentryBreadcrumbTracker(reportAccessibilityIdentifier: true)
+        tracker.start(with: delegate)
+
+        NotificationCenter.default.post(name: UIApplication.didEnterBackgroundNotification, object: nil)
+
+        let crumb = try XCTUnwrap(delegate.addCrumbInvocations.invocations.first(where: { $0.category == "app.lifecycle" }))
+        XCTAssertEqual(crumb.type, "navigation")
+        XCTAssertEqual(crumb.level, .info)
+        XCTAssertEqual(crumb.data?["state"] as? String, "background")
+    }
+
+    func testFullLifecycleSequence_shouldProduceCorrectBreadcrumbStates() throws {
+        let tracker = SentryBreadcrumbTracker(reportAccessibilityIdentifier: true)
+        tracker.start(with: delegate)
+
+        // Simulate: launch → switch away → return
+        NotificationCenter.default.post(name: UIApplication.didBecomeActiveNotification, object: nil)
+        NotificationCenter.default.post(name: UIApplication.willResignActiveNotification, object: nil)
+        NotificationCenter.default.post(name: UIApplication.didEnterBackgroundNotification, object: nil)
+        NotificationCenter.default.post(name: UIApplication.willEnterForegroundNotification, object: nil)
+        NotificationCenter.default.post(name: UIApplication.didBecomeActiveNotification, object: nil)
+
+        let lifecycleCrumbs = delegate.addCrumbInvocations.invocations.filter { $0.category == "app.lifecycle" }
+        XCTAssertEqual(lifecycleCrumbs.count, 5)
+
+        let states = lifecycleCrumbs.compactMap { $0.data?["state"] as? String }
+        XCTAssertEqual(states, ["active", "inactive", "background", "foreground", "active"])
+    }
+
+    func testStop_shouldRemoveLifecycleObservers() throws {
+        let tracker = SentryBreadcrumbTracker(reportAccessibilityIdentifier: true)
+        tracker.start(with: delegate)
+        tracker.stop()
+
+        // Clear any breadcrumbs from start
+        delegate.addCrumbInvocations.removeAll()
+
+        NotificationCenter.default.post(name: UIApplication.willEnterForegroundNotification, object: nil)
+        NotificationCenter.default.post(name: UIApplication.didBecomeActiveNotification, object: nil)
+        NotificationCenter.default.post(name: UIApplication.willResignActiveNotification, object: nil)
+        NotificationCenter.default.post(name: UIApplication.didEnterBackgroundNotification, object: nil)
+
+        let lifecycleCrumbs = delegate.addCrumbInvocations.invocations.filter { $0.category == "app.lifecycle" }
+        XCTAssertEqual(lifecycleCrumbs.count, 0)
+    }
+
+    func testAppLifeCycleBreadcrumbForSessionReplay() throws {
+        let scope = Scope()
+        let client = TestClient(options: Options())
+        let hub = TestHub(client: client, andScope: scope)
+        SentrySDKInternal.setCurrentHub(hub)
+        
+        let tracker = SentryBreadcrumbTracker(reportAccessibilityIdentifier: true)
+        tracker.start(with: delegate)
+        
+        NotificationCenter.default.post(name: UIApplication.didEnterBackgroundNotification, object: nil)
+        
+        let sut = SentrySRDefaultBreadcrumbConverter()
+        guard let crumb = delegate.addCrumbInvocations.invocations.first(where: { $0.category == "app.lifecycle" }) else {
+            XCTFail("No life cycle breadcrumb")
+            return
+        }
+        let result = sut.convert(from: crumb)
+        
+        let event = result?.serialize()
+        let eventData = event?["data"] as? [String: Any]
+        let eventPayload = eventData?["payload"] as? [String: Any]
+        
+        XCTAssertEqual(event?["type"] as? Int, 5)
+        XCTAssertEqual(eventData?["tag"] as? String, "breadcrumb")
+        XCTAssertEqual(eventPayload?["category"] as? String, "app.background")
+    }
+    
+    func testSkipCrumbs_WhenSenderOrTargetIsNil() throws {
+        let swizzlingWrapper = TestSentrySwizzleWrapper()
+        SentryDependencyContainer.sharedInstance().swizzleWrapper = swizzlingWrapper
+        
+        let tracker = SentryBreadcrumbTracker(reportAccessibilityIdentifier: true)
+        tracker.start(with: delegate)
+        tracker.startSwizzle()
+        
+        swizzlingWrapper.execute(action: "methodPressed:", target: nil, sender: self, event: nil)
+        swizzlingWrapper.execute(action: "methodPressed:", target: self, sender: nil, event: nil)
+        
+        let touchCrumbs = delegate.addCrumbInvocations.invocations.filter { crumb in
+            return crumb.category == "touch"
+        }
+        XCTAssertEqual(0, touchCrumbs.count)
+    }
+    
+    func testTouchBreadcrumbForSessionReplay() throws {
+        let scope = Scope()
+        let client = TestClient(options: Options())
+        let hub = TestHub(client: client, andScope: scope)
+        SentrySDKInternal.setCurrentHub(hub)
+        
+        let swizzlingWrapper = TestSentrySwizzleWrapper()
+        SentryDependencyContainer.sharedInstance().swizzleWrapper = swizzlingWrapper
+        
+        let tracker = SentryBreadcrumbTracker(reportAccessibilityIdentifier: true)
+        tracker.start(with: delegate)
+        tracker.startSwizzle()
+        
+        swizzlingWrapper.execute(action: "methodPressed:", target: self, sender: self, event: nil)
+        
+        let sut = SentrySRDefaultBreadcrumbConverter()
+        guard let crumb = delegate.addCrumbInvocations.invocations.first(where: { $0.category == "touch" }) else {
+            XCTFail("No touch breadcrumb")
+            return
+        }
+        
+        let result = try XCTUnwrap(sut.convert(from: crumb) as? SentryRRWebBreadcrumbEvent)
+        let crumbData = try XCTUnwrap(result.data)
+        let payload = try XCTUnwrap(crumbData["payload"] as? [String: Any])
+        
+        XCTAssertEqual(payload["category"] as? String, "ui.tap")
+        XCTAssertEqual(payload["message"] as? String, "methodPressed:")
+    }
+    
+    func testTouchBreadcrumb_DontReportAccessibilityIdentifier() throws {
+        let scope = Scope()
+        let client = TestClient(options: Options())
+        let hub = TestHub(client: client, andScope: scope)
+        SentrySDKInternal.setCurrentHub(hub)
+        
+        let swizzlingWrapper = TestSentrySwizzleWrapper()
+        SentryDependencyContainer.sharedInstance().swizzleWrapper = swizzlingWrapper
+        
+        let tracker = SentryBreadcrumbTracker(reportAccessibilityIdentifier: false)
+        tracker.start(with: delegate)
+        tracker.startSwizzle()
+        
+        let button = UIButton()
+        button.accessibilityIdentifier = "TestAccessibilityIdentifier"
+        
+        swizzlingWrapper.execute(action: "methodPressed:", target: self, sender: button, event: TestEvent(touchedView: button))
+        
+        guard let crumb = delegate.addCrumbInvocations.invocations.first(where: { $0.category == "touch" }) else {
+            XCTFail("No touch breadcrumb")
+            return
+        }
+        
+        let crumbData = try XCTUnwrap(crumb.data)
+        
+        XCTAssertNil(crumbData["accessibilityIdentifier"])
+    }
+    
+    func testTouchBreadcrumb_ReportAccessibilityIdentifier() throws {
+        let scope = Scope()
+        let client = TestClient(options: Options())
+        let hub = TestHub(client: client, andScope: scope)
+        SentrySDKInternal.setCurrentHub(hub)
+        
+        let swizzlingWrapper = TestSentrySwizzleWrapper()
+        SentryDependencyContainer.sharedInstance().swizzleWrapper = swizzlingWrapper
+        
+        let tracker = SentryBreadcrumbTracker(reportAccessibilityIdentifier: true)
+        tracker.start(with: delegate)
+        tracker.startSwizzle()
+        
+        let button = UIButton()
+        button.accessibilityIdentifier = "TestAccessibilityIdentifier"
+        
+        swizzlingWrapper.execute(action: "methodPressed:", target: self, sender: button, event: TestEvent(touchedView: button))
+        
+        let crumb = try XCTUnwrap(delegate.addCrumbInvocations.invocations.first(where: { $0.category == "touch" }))
+        let crumbData = try XCTUnwrap(crumb.data)
+        
+        XCTAssertEqual(crumbData["accessibilityIdentifier"] as? String, "TestAccessibilityIdentifier")
+    }
+
+    func testBreadcrumbViewControllerCustomScreenName() throws {
+        let testReachability = TestSentryReachability()
+        SentryDependencyContainer.sharedInstance().reachability = testReachability
+
+        let scope = Scope()
+        let client = TestClient(options: Options())
+        let hub = TestHub(client: client, andScope: scope)
+        SentrySDKInternal.setCurrentHub(hub)
+
+        let sut = SentryBreadcrumbTracker(reportAccessibilityIdentifier: true)
+        sut.start(with: delegate)
+        sut.startSwizzle()
+
+        let parentScreenName = UUID().uuidString
+        let screenName = UUID().uuidString
+        let title = UUID().uuidString
+
+        let parentController = CustomScreenNameViewController(sentryName: parentScreenName)
+        let viewController = CustomScreenNameViewController(sentryName: screenName)
+        parentController.addChild(viewController)
+        viewController.title = title
+
+        viewController.viewDidAppear(false)
+
+        let crumbs = delegate.addCrumbInvocations.invocations
+
+        // one breadcrumb for starting the tracker, one for the first reachability breadcrumb and one final one for the swizzled viewDidAppear
+        guard crumbs.count == 2 else {
+            XCTFail("Expected exactly 2 breadcrumbs, got: \(crumbs)")
+            return
+        }
+
+        let lifeCycleCrumb = try XCTUnwrap(crumbs.element(at: 1))
+        XCTAssertEqual(screenName, lifeCycleCrumb.data?["screen"] as? String)
+        XCTAssertEqual(title, lifeCycleCrumb.data?["title"] as? String)
+        XCTAssertEqual(parentScreenName, lifeCycleCrumb.data?["parentViewController"] as? String)
+    }
+
+    func testFetchInfo_whenViewControllerInWindow_shouldIncludeWindowInfo() throws {
+        let testReachability = TestSentryReachability()
+        SentryDependencyContainer.sharedInstance().reachability = testReachability
+
+        let scope = Scope()
+        let client = TestClient(options: Options())
+        let hub = TestHub(client: client, andScope: scope)
+        SentrySDKInternal.setCurrentHub(hub)
+
+        let sut = SentryBreadcrumbTracker(reportAccessibilityIdentifier: true)
+        sut.start(with: delegate)
+        sut.startSwizzle()
+
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 100, height: 100))
+        let viewController = UIViewController()
+        viewController.title = "Window Test"
+        window.rootViewController = viewController
+        window.makeKeyAndVisible() // Make window active so view hierarchy is established
+        _ = viewController.view // Load view so it is in the window hierarchy
+
+        viewController.viewDidAppear(false)
+
+        let crumbs = delegate.addCrumbInvocations.invocations
+        guard crumbs.count >= 2 else {
+            XCTFail("Expected at least 2 breadcrumbs, got: \(crumbs.count)")
+            return
+        }
+
+        let lifeCycleCrumb = try XCTUnwrap(crumbs.last)
+        XCTAssertEqual("navigation", lifeCycleCrumb.type)
+        XCTAssertEqual("ui.lifecycle", lifeCycleCrumb.category)
+
+        let data = try XCTUnwrap(lifeCycleCrumb.data)
+        XCTAssertNotNil(data["window"] as? String, "Breadcrumb should include window description when view controller is in a window")
+        XCTAssertNotNil(data["window_isKeyWindow"] as? String)
+        XCTAssertNotNil(data["window_windowLevel"] as? String)
+        XCTAssertEqual(data["is_window_rootViewController"] as? String, "true", "ViewController is root of the window")
+    }
+
+    func testFetchInfo_whenViewControllerNotInWindow_shouldNotIncludeWindowInfo() throws {
+        let testReachability = TestSentryReachability()
+        SentryDependencyContainer.sharedInstance().reachability = testReachability
+
+        let scope = Scope()
+        let client = TestClient(options: Options())
+        let hub = TestHub(client: client, andScope: scope)
+        SentrySDKInternal.setCurrentHub(hub)
+
+        let sut = SentryBreadcrumbTracker(reportAccessibilityIdentifier: true)
+        sut.start(with: delegate)
+        sut.startSwizzle()
+
+        let parentController = UIViewController()
+        let viewController = UIViewController()
+        viewController.title = "Orphan Test"
+        parentController.addChild(viewController)
+        _ = viewController.view // Load view but it is not in any window
+
+        viewController.viewDidAppear(false)
+
+        let crumbs = delegate.addCrumbInvocations.invocations
+        guard crumbs.count >= 2 else {
+            XCTFail("Expected at least 2 breadcrumbs, got: \(crumbs.count)")
+            return
+        }
+
+        let lifeCycleCrumb = try XCTUnwrap(crumbs.last)
+        let data = lifeCycleCrumb.data ?? [:]
+        XCTAssertNil(data["window"], "Breadcrumb should not include window when view controller's view is not in a window")
+        XCTAssertNil(data["window_isKeyWindow"])
+        XCTAssertNil(data["window_windowLevel"])
+        XCTAssertNil(data["is_window_rootViewController"])
+    }
+
+    private class TestEvent: UIEvent {
+        let touchedView: UIView?
+        class TestEndTouch: UITouch {
+            let touchedView: UIView?
+            init(touchedView: UIView?) {
+                self.touchedView = touchedView
+            }
+            override var phase: UITouch.Phase { .ended }
+            override var view: UIView? { touchedView }
+        }
+        
+        init(touchedView: UIView?) {
+            self.touchedView = touchedView
+        }
+        
+        override var allTouches: Set<UITouch> { [
+            TestEndTouch(touchedView: touchedView)
+        ] }
+    }
+
+    fileprivate final class CustomScreenNameViewController: UIViewController, SentryUIViewControllerDescriptor {
+
+        fileprivate required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+
+        fileprivate var sentryName: String
+
+        fileprivate init(sentryName: String) {
+            self.sentryName = sentryName
+            super.init(nibName: nil, bundle: nil)
+        }
+    }
+#endif
+
+#if os(macOS)
+    func testMacOS_didBecomeActive_shouldAddActiveBreadcrumb() throws {
+        let tracker = SentryBreadcrumbTracker(reportAccessibilityIdentifier: true)
+        tracker.start(with: delegate)
+
+        NotificationCenter.default.post(name: NSApplication.didBecomeActiveNotification, object: nil)
+
+        let crumb = try XCTUnwrap(delegate.addCrumbInvocations.invocations.first(where: { $0.category == "app.lifecycle" }))
+        XCTAssertEqual(crumb.type, "navigation")
+        XCTAssertEqual(crumb.level, .info)
+        XCTAssertEqual(crumb.data?["state"] as? String, "active")
+    }
+
+    func testMacOS_willResignActive_shouldAddInactiveBreadcrumb() throws {
+        let tracker = SentryBreadcrumbTracker(reportAccessibilityIdentifier: true)
+        tracker.start(with: delegate)
+
+        NotificationCenter.default.post(name: NSApplication.willResignActiveNotification, object: nil)
+
+        let crumb = try XCTUnwrap(delegate.addCrumbInvocations.invocations.first(where: { $0.category == "app.lifecycle" }))
+        XCTAssertEqual(crumb.type, "navigation")
+        XCTAssertEqual(crumb.level, .info)
+        XCTAssertEqual(crumb.data?["state"] as? String, "inactive")
+    }
+
+    func testMacOS_fullLifecycleSequence_shouldProduceCorrectBreadcrumbStates() throws {
+        let tracker = SentryBreadcrumbTracker(reportAccessibilityIdentifier: true)
+        tracker.start(with: delegate)
+
+        NotificationCenter.default.post(name: NSApplication.didBecomeActiveNotification, object: nil)
+        NotificationCenter.default.post(name: NSApplication.willResignActiveNotification, object: nil)
+        NotificationCenter.default.post(name: NSApplication.didBecomeActiveNotification, object: nil)
+
+        let lifecycleCrumbs = delegate.addCrumbInvocations.invocations.filter { $0.category == "app.lifecycle" }
+        XCTAssertEqual(lifecycleCrumbs.count, 3)
+
+        let states = lifecycleCrumbs.compactMap { $0.data?["state"] as? String }
+        XCTAssertEqual(states, ["active", "inactive", "active"])
+    }
+
+    func testMacOS_stop_shouldRemoveLifecycleObservers() throws {
+        let tracker = SentryBreadcrumbTracker(reportAccessibilityIdentifier: true)
+        tracker.start(with: delegate)
+        tracker.stop()
+
+        delegate.addCrumbInvocations.removeAll()
+
+        NotificationCenter.default.post(name: NSApplication.didBecomeActiveNotification, object: nil)
+        NotificationCenter.default.post(name: NSApplication.willResignActiveNotification, object: nil)
+
+        let lifecycleCrumbs = delegate.addCrumbInvocations.invocations.filter { $0.category == "app.lifecycle" }
+        XCTAssertEqual(lifecycleCrumbs.count, 0)
+    }
+#endif
+    
+}

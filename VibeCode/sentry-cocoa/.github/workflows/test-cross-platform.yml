@@ -1,0 +1,149 @@
+name: Test Cross Platform
+
+on:
+  push:
+    branches:
+      - main
+      - v8.x
+
+  pull_request:
+
+# Concurrency configuration:
+# - We use workflow-specific concurrency groups to prevent multiple cross-platform tests,
+#   as these involve complex React Native and cross-platform integration setups.
+# - For pull requests, we cancel in-progress runs when new commits are pushed since only the
+#   latest cross-platform compatibility results matter for validating multi-platform support.
+# - For main branch pushes, we never cancel cross-platform tests to ensure our SDK remains
+#   compatible with React Native and other cross-platform frameworks that depend on us.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  files-changed:
+    name: Detect File Changes
+    runs-on: ubuntu-latest
+    outputs:
+      run_test_cross_platform_for_prs: ${{ steps.changes.outputs.run_test_cross_platform_for_prs }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: Get changed files
+        id: changes
+        uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+        with:
+          token: ${{ github.token }}
+          filters: .github/file-filters.yml
+
+  test-react-native:
+    name: React Native Installation
+    # Run the job only for PRs with related changes or non-PR events.
+    if: github.event_name != 'pull_request' || needs.files-changed.outputs.run_test_cross_platform_for_prs == 'true'
+    needs: files-changed
+    runs-on:
+      - "ghcr.io/cirruslabs/macos-runner:sequoia,runner_concurrency_group=${{ github.run_id }}"
+      - "runner_group_id:10"
+    # This job can take a while to run, so we set a timeout.
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          repository: getsentry/sentry-cocoa
+          path: sentry-cocoa
+
+      - name: Initialize tools
+        run: make init-ci-build
+        working-directory: sentry-cocoa
+
+      - name: Clone Sentry React Native Repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          repository: getsentry/sentry-react-native
+          path: sentry-react-native
+          ref: main
+
+      - name: Enable Corepack
+        working-directory: sentry-react-native
+        run: npm i -g corepack --force
+
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version: 18
+          cache: "yarn"
+          cache-dependency-path: sentry-react-native/yarn.lock
+      - run: ./sentry-cocoa/scripts/ci-select-xcode.sh 16.4
+
+      - name: Ensure required runtime is loaded
+        # Ideally we will not need this, but CI sometimes is failing to load some runtimes, this will ensure they are loaded
+        timeout-minutes: 5 # 5 minutes timeout
+        env:
+          OS_VERSION: "18.4"
+          PLATFORM: "iOS"
+        run: ./sentry-cocoa/scripts/ci-ensure-runtime-loaded.sh --os-version "$OS_VERSION" --platform "$PLATFORM"
+
+      - name: Create simulator device for iOS 18.4
+        run: ./sentry-cocoa/scripts/ci-create-simulator.sh --platform "iOS" --os-version "18.4" --device-name "iPhone 15 Pro"
+
+      - name: Install SDK JS Dependencies
+        working-directory: sentry-react-native
+        run: yarn install
+
+      - name: Remove fixed version of Sentry Dependency from RNSentry.podspec
+        run: sed -E -i '' "s/s.dependency 'Sentry', '[0-9]*\.[0-9]*\.[0-9]*(-[a-z]+\.[0-9]+)?'/s.dependency 'Sentry'/" sentry-react-native/packages/core/RNSentry.podspec
+
+      - name: Add Sentry Dependency with path to Sentry Cocoa SDK to RNSentryCocoaTester/Podfile
+        run: sed -i '' -e "s/RNSentry.podspec'/RNSentry.podspec'\\n  pod 'Sentry', :path => '..\/..\/..\/..\/sentry-cocoa'/" sentry-react-native/packages/core/RNSentryCocoaTester/Podfile
+
+      - name: Disable test parallelization
+        working-directory: sentry-react-native/packages/core/RNSentryCocoaTester
+        run: sed -i '' "s/parallelizable = \"YES\"/parallelizable = \"NO\"/" RNSentryCocoaTester.xcodeproj/xcshareddata/xcschemes/RNSentryCocoaTester.xcscheme
+
+      - name: Setup Ruby
+        # We use the same ruby version used by Cirrus to install fastlane and other tools
+        # see: https://github.com/cirruslabs/macos-image-templates/blob/9115ef25530497999073cdf0f5497a4d142e3256/templates/xcode.pkr.hcl#L235
+        uses: ruby/setup-ruby@4dc28cf14d77b0afa6832d9765ac422dbf0dfedd # v1.298.0
+        with:
+          ruby-version: "3.3.10"
+
+      - name: Install cocoapods
+        working-directory: sentry-react-native/packages/core/RNSentryCocoaTester
+        run: gem install cocoapods
+
+      - name: Install App Pods
+        working-directory: sentry-react-native/packages/core/RNSentryCocoaTester
+        run: pod install
+
+      - name: Run iOS Tests
+        working-directory: sentry-react-native/packages/core/RNSentryCocoaTester
+        env:
+          SCHEME: RNSentryCocoaTester
+          CONFIGURATION: Release
+          DESTINATION: "platform=iOS Simulator,OS=18.4,name=iPhone 15 Pro"
+        run: |
+          set -o pipefail
+          env NSUnbufferedIO=YES \
+            xcodebuild -workspace *.xcworkspace \
+            -scheme $SCHEME -configuration $CONFIGURATION \
+            -destination "$DESTINATION" \
+            test SWIFT_ACTIVE_COMPILATION_CONDITIONS=CROSS_PLATFORM_TEST GCC_PREPROCESSOR_DEFINITIONS"=CROSS_PLATFORM_TEST=1" | xcbeautify
+
+      - name: Run CI Diagnostics
+        if: failure()
+        run: ./sentry-cocoa/scripts/ci-diagnostics.sh
+
+  test_cross_platform-required-check:
+    needs:
+      [
+        files-changed,
+        test-react-native,
+      ]
+    name: Test Cross Platform
+    # This is necessary since a failed/skipped dependent job would cause this job to be skipped
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      # If any jobs we depend on fails gets cancelled or times out, this job will fail.
+      # Skipped jobs are not considered failures.
+      - name: Check for failures
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: |
+          echo "One of the cross-platform test jobs has failed." && exit 1

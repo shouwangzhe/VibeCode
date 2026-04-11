@@ -1,0 +1,19 @@
+# macOS / Xcode
+.DS_Store
+*.xcuserstate
+DerivedData/
+VibeCode/VibeCode.xcodeproj/xcuserdata/
+
+# Swift Package Manager
+.build/
+Package.resolved
+
+# Build artifacts
+VibeCode-latest.dmg
+VibeCode/Scripts.tar.gz
+
+# Sensitive files
+VibeCode/sparkle_private_key.pem
+
+# Claude Code local settings
+.claude/

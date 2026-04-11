@@ -1,0 +1,158 @@
+name: Test UI Critical
+on:
+  push:
+    branches:
+      - main
+      - v8.x
+
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+
+# Concurrency configuration:
+# - We use workflow-specific concurrency groups to prevent multiple critical UI test runs,
+#   as these test the most essential user interface functionality and are resource-intensive.
+# - For pull requests, we cancel in-progress runs when new commits are pushed to provide
+#   faster feedback on critical functionality and avoid wasting expensive testing resources.
+# - For main branch pushes, we never cancel critical UI tests to ensure the most important
+#   user interface features are always validated before code reaches production.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  ready-to-merge-gate:
+    name: Ready-to-merge gate
+    uses: ./.github/workflows/ready-to-merge-workflow.yml
+
+  files-changed:
+    name: Detect File Changes
+    runs-on: ubuntu-latest
+    needs: ready-to-merge-gate
+    outputs:
+      run_ui_tests_critical_for_prs: ${{ steps.changes.outputs.run_ui_tests_critical_for_prs }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: Get changed files
+        id: changes
+        uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+        with:
+          token: ${{ github.token }}
+          filters: .github/file-filters.yml
+
+  run-tests:
+    if: github.event_name != 'pull_request' || needs.files-changed.outputs.run_ui_tests_critical_for_prs == 'true'
+    needs: files-changed
+    name: Test ${{matrix.name}} V4 # Up the version with every change to keep track of flaky tests
+    uses: ./.github/workflows/ui-tests-common.yml
+    with:
+      fastlane_command: ui_critical_tests_ios_swiftui_envelope
+      build_with_make: true
+      macos_version: ${{matrix.platform.runs-on}}
+      files_suffix: _${{matrix.platform.xcode}}
+      test-destination-os: ${{matrix.platform.test-destination-os}}
+      xcode_version: ${{matrix.platform.xcode}}
+      platform: ${{matrix.platform.platform}}
+      device: ${{matrix.platform.device}}
+      # We run UI tests only on Cirrus Labs for now.
+      run_on_cirrus_labs: true
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macos-14 iOS 17 not included due to the XCUIServerNotFound errors causing flaky tests
+
+          # iOS 18 - Use pre-installed iOS 18.4 runtime on macOS-15
+          # As of 14th August 2025, iOS 18.4 is preinstalled for macOS-15 and Xcode 16.4; see
+          # https://github.com/actions/runner-images/blob/main/images/macos/macos-15-Readme.md#installed-sdks
+          - name: iOS 18
+            platform:
+              runs-on: sequoia
+              xcode: "16.4"
+              test-destination-os: "18.4"
+              platform: "iOS"
+              device: "iPhone 16 Pro"
+
+          # iOS 26 - Use pre-installed iOS 26.1 runtime on macOS-26
+          - name: iOS 26
+            platform:
+              runs-on: tahoe
+              xcode: "26.1.1"
+              test-destination-os: "26.1"
+              platform: "iOS"
+              device: "iPhone 17 Pro"
+
+    secrets:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+  run-swiftui-crash-test:
+    if: github.event_name != 'pull_request' || needs.files-changed.outputs.run_ui_tests_critical_for_prs == 'true'
+    needs: files-changed
+    name: Run SwiftUI Crash Test
+    runs-on:
+      - "ghcr.io/cirruslabs/macos-runner:sequoia,runner_concurrency_group=${{ github.run_id }}"
+      - "runner_group_id:10"
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - run: ./scripts/ci-select-xcode.sh 16.4
+
+      - run: make init-ci-build
+      - run: make xcode-ci
+
+      - name: Enable screenshots permissions
+        shell: bash
+        run: ./scripts/ci-enable-permissions.sh
+
+      - name: Ensure required runtime is loaded
+        # Ideally we will not need this, but CI sometimes is failing to load some runtimes, this will ensure they are loaded
+        timeout-minutes: 5 # 5 minutes timeout
+        env:
+          OS_VERSION: "18.4"
+          PLATFORM: "iOS"
+        run: ./scripts/ci-ensure-runtime-loaded.sh --os-version "$OS_VERSION" --platform "$PLATFORM"
+
+      - name: Boot simulator
+        run: ./scripts/ci-boot-simulator.sh
+
+      - name: Run SwiftUI Crash Test
+        run: |
+          ./TestSamples/SwiftUICrashTest/test-crash-and-relaunch.sh --screenshots-dir "swiftui-crash-test-screenshots"
+
+      - name: Upload SwiftUI Crash Test Screenshots
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        if: always()
+        with:
+          name: swiftui-crash-test-screenshots
+          path: swiftui-crash-test-screenshots
+
+      - name: Collect Logs
+        if: always()
+        run: xcrun simctl spawn booted log collect --output $(pwd)/swiftui-crash-test-log.logarchive
+
+      - name: Upload Logs
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        if: always()
+        with:
+          name: swiftui-crash-test-log.logarchive
+          path: swiftui-crash-test-log.logarchive
+
+      - name: Run CI Diagnostics
+        if: failure()
+        run: ./scripts/ci-diagnostics.sh
+
+  # This check validates that either all UI tests critical passed or were skipped, which allows us
+  # to make UI tests critical a required check with only running the UI tests critical when required.
+  # So, we don't have to run UI tests critical, for example, for unrelated changes.
+  ui_tests_critical-required-check:
+    needs: [files-changed, run-tests, run-swiftui-crash-test]
+    name: UI Tests Critical
+    # This is necessary since a failed/skipped dependent job would cause this job to be skipped
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      # If any jobs we depend on fails gets cancelled or times out, this job will fail.
+      # Skipped jobs are not considered failures.
+      - name: Check for failures
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: |
+          echo "One of the UI tests critical jobs has failed." && exit 1

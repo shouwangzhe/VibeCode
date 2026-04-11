@@ -1,0 +1,67 @@
+name: VibeCode
+options:
+  bundleIdPrefix: com.vibecode
+  deploymentTarget:
+    macOS: "14.0"
+  xcodeVersion: "16.4"
+  createIntermediateGroups: true
+  defaultConfig: Debug
+  groupSortPosition: top
+
+packages: {}
+
+settings:
+  base:
+    SWIFT_VERSION: "5.10"
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+    ARCHS: "$(ARCHS_STANDARD)"
+
+targets:
+  VibeCode:
+    type: application
+    platform: macOS
+    sources:
+      - path: VibeCode
+        excludes:
+          - "**/*.xcassets"
+      - path: Shared
+    resources:
+      - path: VibeCode/Resources/Assets.xcassets
+      - path: VibeCode/Resources/Sounds
+    dependencies: []
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.vibecode.macos
+        PRODUCT_NAME: VibeCode
+        INFOPLIST_FILE: VibeCode/Info.plist
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGN_STYLE: Manual
+        ENABLE_HARDENED_RUNTIME: false
+        COMBINE_HIDPI_IMAGES: true
+    info:
+      path: VibeCode/Info.plist
+      properties:
+        CFBundleName: VibeCode
+        CFBundleDisplayName: VibeCode
+        CFBundleIdentifier: com.vibecode.macos
+        CFBundleVersion: "1"
+        CFBundleShortVersionString: "0.1.0"
+        CFBundlePackageType: APPL
+        CFBundleExecutable: VibeCode
+        LSMinimumSystemVersion: "14.0"
+        LSUIElement: true
+        NSAppleEventsUsageDescription: "VibeCode needs to control terminal applications to jump to Claude Code sessions."
+        NSHumanReadableCopyright: "Copyright 2024 VibeCode"
+
+  VibeBridge:
+    type: tool
+    platform: macOS
+    sources:
+      - path: VibeBridge
+      - path: Shared
+    settings:
+      base:
+        PRODUCT_NAME: vibecode-bridge
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGN_STYLE: Manual
+        SWIFT_VERSION: "5.10"

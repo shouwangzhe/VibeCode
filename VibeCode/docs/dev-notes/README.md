@@ -1,0 +1,7 @@
+- [Project Overview](project_overview.md) — VibeCode: macOS Dynamic Island for Claude Code — architecture, tech stack, all modules, IPC protocol, data flow
+- [File Map](file_map.md) — Complete source file map with one-line descriptions for every Swift file and script
+- [Panel Collapse & Permission Logic](feedback_collapse_permission.md) — 有 pending 时不收缩 + stale 清除必须检查 callback 存在性，两者联动
+- [Menu Bar Pill Alignment](feedback_menubar_alignment.md) — Use OS-computed menuBarHeight, not hardcoded; notch vs non-notch shape strategy
+- [Known Errors](known_errors.md) — 权限审批消失、面板收缩、stale permission、API throttling 等 bug 及修复记录
+- [Build & Deploy Notes](build_deploy.md) — VibeBridge uses SPM not Xcode; bridge must be manually deployed to ~/.vibecode/bin/; ducc uses separate --settings file
+- [Session Architecture](session_architecture.md) — Session discovery via IPC events + ensureSession; TTY obtained from bridge via process tree walk; remote sessions use HTTP agent
