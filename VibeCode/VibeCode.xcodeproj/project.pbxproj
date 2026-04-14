@@ -50,6 +50,7 @@
 		CE42E87B7543E4E7E672FED6 /* EventParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = F721EED388A65B5B1A63AC13 /* EventParser.swift */; };
 		D44D206BDEA91BCD989381C2 /* SoundService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9C70A87D38B90BB2CB249D2 /* SoundService.swift */; };
 		D6C58F970227DF33DCC32B78 /* SessionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28E7FAFA15530C07CD33482C /* SessionManager.swift */; };
+		EE22BB33CC44DD55EE66FF77 /* TranscriptWatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD11AA22BB33CC44DD55EE66 /* TranscriptWatcher.swift */; };
 		D6C735E85001B95D5F0BC28E /* NotchGeometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53709AD666D3BD5595CD93E6 /* NotchGeometry.swift */; };
 		D6FF1C2138CA6A33DCBE1215 /* ExpandedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A4E14FBCD372141AC095CAE /* ExpandedView.swift */; };
 		E0CB4B714FB31DA1F8BFFA0D /* TerminalService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C09E8CE588F8845A890A098 /* TerminalService.swift */; };
@@ -99,6 +100,7 @@
 		BC9E902C841485CFDB6A4095 /* HotkeyService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyService.swift; sourceTree = "<group>"; };
 		C3C29E5E34569FC4626F1354 /* DiagnosticExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticExporter.swift; sourceTree = "<group>"; };
 		C89F5B9DD387AC51DABF66B8 /* UserDefaultsBacked.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserDefaultsBacked.swift; sourceTree = "<group>"; };
+		DD11AA22BB33CC44DD55EE66 /* TranscriptWatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptWatcher.swift; sourceTree = "<group>"; };
 		CC4D6E8D0361FB250EA24485 /* PixelMascotData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PixelMascotData.swift; sourceTree = "<group>"; };
 		CEE50A1D5F5B4C26338FEBE5 /* ReadFileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadFileView.swift; sourceTree = "<group>"; };
 		D424EF3020394613839902CD /* VibeCode.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VibeCode.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -203,6 +205,7 @@
 				F762EE89B8697B8D9CF750CE /* SoundPackStore.swift */,
 				F9C70A87D38B90BB2CB249D2 /* SoundService.swift */,
 				2C09E8CE588F8845A890A098 /* TerminalService.swift */,
+				DD11AA22BB33CC44DD55EE66 /* TranscriptWatcher.swift */,
 				A6F3CD6B01FF785855B104ED /* UpdateService.swift */,
 				C89F5B9DD387AC51DABF66B8 /* UserDefaultsBacked.swift */,
 			);
@@ -402,6 +405,7 @@
 				E319F191892F107D65B819AB /* SoundPackStore.swift in Sources */,
 				D44D206BDEA91BCD989381C2 /* SoundService.swift in Sources */,
 				E0CB4B714FB31DA1F8BFFA0D /* TerminalService.swift in Sources */,
+				EE22BB33CC44DD55EE66FF77 /* TranscriptWatcher.swift in Sources */,
 				137C15ADE22777666D2D40B4 /* UpdateService.swift in Sources */,
 				17C8B7ED1D7B8D5FC1D8F7E6 /* UserDefaultsBacked.swift in Sources */,
 				E442A7ADFB0AE4635CCA3621 /* VibeCodeApp.swift in Sources */,

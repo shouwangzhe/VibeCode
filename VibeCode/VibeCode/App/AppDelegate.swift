@@ -28,6 +28,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Start discovering existing Claude Code sessions
         sessionManager.startDiscovery()
 
+        // Initialize transcript watcher for hookless sessions (e.g. ducc v2.1.71)
+        sessionManager.setupTranscriptWatcher()
+
         NSWorkspace.shared.notificationCenter.addObserver(
             self, selector: #selector(screenParametersChanged),
             name: NSApplication.didChangeScreenParametersNotification, object: nil

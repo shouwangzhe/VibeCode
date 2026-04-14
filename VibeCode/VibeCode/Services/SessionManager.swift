@@ -27,6 +27,12 @@ class SessionManager {
     var autoApprove: Bool = UserDefaults.standard.bool(forKey: "autoApprovePermissions")
     private var permissionCallbacks: [String: (IPCResponse) -> Void] = [:]
     private var discoveryTimer: Timer?
+    private(set) var transcriptWatcher: TranscriptWatcher?
+
+    /// Initialize transcript watcher for hookless sessions (e.g. ducc v2.1.71)
+    func setupTranscriptWatcher() {
+        transcriptWatcher = TranscriptWatcher(sessionManager: self)
+    }
 
     func handleEvent(_ message: IPCMessage) {
         sessionLog("handleEvent: \(message.eventType.rawValue) session=\(message.sessionId) tty=\(message.tty ?? "nil")")
@@ -46,6 +52,7 @@ class SessionManager {
     func stopDiscovery() {
         discoveryTimer?.invalidate()
         discoveryTimer = nil
+        transcriptWatcher?.stopAll()
     }
 
     /// Scan ~/.claude/sessions/*.json and running claude processes to find active sessions
@@ -142,8 +149,29 @@ class SessionManager {
         }
 
         for (sessionId, _) in deadSessions {
+            if sessions[sessionId]?.isTranscriptWatching == true {
+                transcriptWatcher?.stopWatching(sessionId: sessionId)
+            }
             sessions.removeValue(forKey: sessionId)
             sessionLog("Removed dead session: \(sessionId)")
+        }
+
+        // Activate transcript watching for hookless sessions (e.g. ducc v2.1.71)
+        // Wait >15s after creation to give hooks a chance to fire first
+        for (sessionId, session) in sessions where
+            !session.hasActiveHooks &&
+            !session.isTranscriptWatching &&
+            !sessionId.hasPrefix("process-") &&
+            session.status != .ended &&
+            Date().timeIntervalSince(session.startedAt) > 15
+        {
+            if let path = findTranscriptPath(sessionId: sessionId, cwd: session.cwd) {
+                session.transcriptPath = path
+                session.isTranscriptWatching = true
+                let offset = Self.fileSize(at: path)
+                transcriptWatcher?.startWatching(sessionId: sessionId, transcriptPath: path, initialOffset: offset)
+                sessionLog("Started transcript watching for hookless session \(sessionId)")
+            }
         }
 
         // Re-infer status for sessions showing "ready" but with recently modified transcript.
@@ -151,12 +179,19 @@ class SessionManager {
         let readySessions = sessions.filter { $0.value.status == .ready && $0.value.pid != nil }
         if !readySessions.isEmpty {
             DispatchQueue.global(qos: .utility).async { [weak self] in
-                let projectsDir = NSHomeDirectory() + "/.claude/projects"
-                guard let projectDirs = try? FileManager.default.contentsOfDirectory(atPath: projectsDir) else { return }
+                var allProjectDirs: [(base: String, dir: String)] = []
+                for basePath in VibeCodeConstants.allProjectsPaths {
+                    if let dirs = try? FileManager.default.contentsOfDirectory(atPath: basePath) {
+                        for dir in dirs {
+                            allProjectDirs.append((base: basePath, dir: dir))
+                        }
+                    }
+                }
+                guard !allProjectDirs.isEmpty else { return }
 
                 for (sessionId, _) in readySessions {
-                    for dir in projectDirs {
-                        let transcriptPath = "\(projectsDir)/\(dir)/\(sessionId).jsonl"
+                    for entry in allProjectDirs {
+                        let transcriptPath = "\(entry.base)/\(entry.dir)/\(sessionId).jsonl"
                         guard let attrs = try? FileManager.default.attributesOfItem(atPath: transcriptPath),
                               let modDate = attrs[.modificationDate] as? Date else { continue }
 
@@ -284,6 +319,25 @@ class SessionManager {
     }
 
     private func handleEventImmediate(_ message: IPCMessage) {
+        // Mark sessions that receive real IPC events (not transcript) as having active hooks
+        if message.source != "transcript", let session = sessions[message.sessionId] {
+            if !session.hasActiveHooks {
+                session.hasActiveHooks = true
+                // Stop transcript watching for this session — hooks are working
+                if session.isTranscriptWatching {
+                    session.isTranscriptWatching = false
+                    transcriptWatcher?.stopWatching(sessionId: message.sessionId)
+                    sessionLog("Confirmed active hooks for \(message.sessionId), stopped transcript watcher")
+                }
+            }
+        }
+
+        // Skip transcript events for sessions with active hooks (dedup)
+        if message.source == "transcript",
+           sessions[message.sessionId]?.hasActiveHooks == true {
+            return
+        }
+
         // Auto-create session if we receive an event for an unknown session
         // (e.g. VibeCode was restarted while sessions were already running)
         if message.eventType != .sessionEnd {
@@ -347,6 +401,10 @@ class SessionManager {
 
         case .sessionEnd:
             sessions[message.sessionId]?.status = .ended
+            if sessions[message.sessionId]?.isTranscriptWatching == true {
+                transcriptWatcher?.stopWatching(sessionId: message.sessionId)
+                sessions[message.sessionId]?.isTranscriptWatching = false
+            }
             CrashReporter.shared.addBreadcrumb(category: "session", message: "Session ended: \(message.sessionId)")
             let sid = message.sessionId
             DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
@@ -622,18 +680,53 @@ class SessionManager {
         sessionLog("TaskUpdate: session=\(sessionId) id=\(taskId) status=\(toolInput["status"]?.stringValue ?? "?")")
     }
 
+    // MARK: - Transcript Path Discovery
+
+    /// Find the transcript JSONL file for a given session
+    private func findTranscriptPath(sessionId: String, cwd: String) -> String? {
+        let fm = FileManager.default
+        let encodedDir = VibeCodeConstants.encodedProjectDir(for: cwd)
+
+        // Fast path: construct path directly from cwd
+        for basePath in VibeCodeConstants.allProjectsPaths {
+            let directPath = "\(basePath)/\(encodedDir)/\(sessionId).jsonl"
+            if fm.fileExists(atPath: directPath) {
+                return directPath
+            }
+        }
+
+        // Slow path: scan all project directories
+        for basePath in VibeCodeConstants.allProjectsPaths {
+            guard let projectDirs = try? fm.contentsOfDirectory(atPath: basePath) else { continue }
+            for dir in projectDirs {
+                let path = "\(basePath)/\(dir)/\(sessionId).jsonl"
+                if fm.fileExists(atPath: path) {
+                    return path
+                }
+            }
+        }
+        return nil
+    }
+
+    /// Get file size in bytes, returns 0 if file doesn't exist
+    private static func fileSize(at path: String) -> UInt64 {
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: path),
+              let size = attrs[.size] as? UInt64 else { return 0 }
+        return size
+    }
+
     // MARK: - Transcript Parsing
 
     /// Infer session status from transcript: if last assistant message ends with tool_use, it's thinking
     private static func inferStatusFromTranscript(sessionId: String) -> SessionStatus {
-        // Find transcript file
-        let projectsDir = NSHomeDirectory() + "/.claude/projects"
-        guard let projectDirs = try? FileManager.default.contentsOfDirectory(atPath: projectsDir) else { return .ready }
-
-        for dir in projectDirs {
-            let transcriptPath = "\(projectsDir)/\(dir)/\(sessionId).jsonl"
-            if FileManager.default.fileExists(atPath: transcriptPath) {
-                return inferStatusFromFile(transcriptPath)
+        // Find transcript file across all project directories
+        for basePath in VibeCodeConstants.allProjectsPaths {
+            guard let projectDirs = try? FileManager.default.contentsOfDirectory(atPath: basePath) else { continue }
+            for dir in projectDirs {
+                let transcriptPath = "\(basePath)/\(dir)/\(sessionId).jsonl"
+                if FileManager.default.fileExists(atPath: transcriptPath) {
+                    return inferStatusFromFile(transcriptPath)
+                }
             }
         }
         return .ready

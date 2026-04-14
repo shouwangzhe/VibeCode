@@ -56,6 +56,11 @@ class ClaudeSession: Identifiable {
     var tasks: [String: TaskItem] = [:]
     var nextTaskId: Int = 1
 
+    // Transcript watching (fallback for hookless sessions like ducc v2.1.71)
+    var hasActiveHooks: Bool = false
+    var transcriptPath: String?
+    var isTranscriptWatching: Bool = false
+
     var taskSummary: (completed: Int, total: Int) {
         let active = tasks.values.filter { $0.status != .deleted }
         let done = active.filter { $0.status == .completed }.count

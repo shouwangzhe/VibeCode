@@ -10,6 +10,17 @@ enum VibeCodeConstants {
     static let bridgeName = "vibecode-bridge"
     static let bridgeLauncherPath = NSHomeDirectory() + "/.vibecode/bin/vibecode-bridge"
 
+    // Transcript project directories
+    static let claudeProjectsPath = NSHomeDirectory() + "/.claude/projects"
+    static let duccProjectsPath = NSHomeDirectory() + "/.ducc/projects"
+    static var allProjectsPaths: [String] { [claudeProjectsPath, duccProjectsPath] }
+
+    /// Encode a cwd path to the directory name format used by transcript storage
+    /// e.g. "/Users/foo/bar" -> "-Users-foo-bar"
+    static func encodedProjectDir(for cwd: String) -> String {
+        cwd.replacingOccurrences(of: "/", with: "-")
+    }
+
     // Panel dimensions
     static let collapsedWidth: CGFloat = 194  // Match Vibe Island width
     static let collapsedHeight: CGFloat = 30  // Match menu bar height exactly
