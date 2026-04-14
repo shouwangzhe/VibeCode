@@ -53,6 +53,18 @@ class ClaudeSession: Identifiable {
     var lastToolOutput: String?
     var lastAssistantResponse: String?
     var sessionName: String?
+    var tasks: [String: TaskItem] = [:]
+    var nextTaskId: Int = 1
+
+    var taskSummary: (completed: Int, total: Int) {
+        let active = tasks.values.filter { $0.status != .deleted }
+        let done = active.filter { $0.status == .completed }.count
+        return (done, active.count)
+    }
+
+    var currentTask: TaskItem? {
+        tasks.values.first(where: { $0.status == .inProgress })
+    }
 
     var projectName: String {
         let dir = (cwd as NSString).lastPathComponent

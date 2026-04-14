@@ -22,7 +22,9 @@ private func sessionLog(_ msg: String) {
 /// Manages all active Claude Code sessions
 @Observable
 class SessionManager {
+    static weak var shared: SessionManager?
     var sessions: [String: ClaudeSession] = [:]
+    var autoApprove: Bool = UserDefaults.standard.bool(forKey: "autoApprovePermissions")
     private var permissionCallbacks: [String: (IPCResponse) -> Void] = [:]
     private var discoveryTimer: Timer?
 
@@ -91,20 +93,44 @@ class SessionManager {
             DispatchQueue.main.async {
                 guard let self = self else { return }
                 for info in discovered {
-                    let alreadyTracked = self.sessions.values.contains(where: { $0.pid == info.pid })
-                    if alreadyTracked {
-                        sessionLog("Process PID \(info.pid) already tracked, skipping")
+                    // Check if already tracked by PID
+                    let alreadyTrackedByPid = self.sessions.values.contains(where: { $0.pid == info.pid })
+                    if alreadyTrackedByPid {
+                        // For process- placeholder sessions, update status based on CPU since
+                        // they don't receive IPC events to correct their state
+                        if let (sid, session) = self.sessions.first(where: {
+                            $0.key.hasPrefix("process-") && $0.value.pid == info.pid
+                        }) {
+                            let cpuStatus: SessionStatus = info.cpuPercent > 5.0 ? .thinking : .ready
+                            if session.status != cpuStatus {
+                                session.status = cpuStatus
+                                sessionLog("Updated process session \(sid) status to \(cpuStatus.rawValue) (CPU \(info.cpuPercent)%)")
+                            }
+                        }
                         continue
                     }
+
+                    // Check if already tracked by TTY (IPC-created sessions may lack PID)
+                    if let tty = info.tty,
+                       let (existingId, existingSession) = self.sessions.first(where: {
+                           !$0.key.hasPrefix("process-") && $0.value.tty == tty && $0.value.pid == nil
+                       }) {
+                        // Fill in the missing PID on the existing IPC-created session
+                        existingSession.pid = info.pid
+                        sessionLog("Merged process PID \(info.pid) into existing session \(existingId) by TTY \(tty)")
+                        continue
+                    }
+
                     let sessionId = "process-\(info.pid)"
                     if self.sessions[sessionId] != nil { continue }
 
                     let session = ClaudeSession(id: sessionId, cwd: info.cwd)
                     session.pid = info.pid
                     session.tty = info.tty
-                    session.status = .ready  // Default to ready; active sessions update quickly via IPC events
+                    // Infer initial status from CPU usage: active CPU means working, idle means waiting for input
+                    session.status = info.cpuPercent > 5.0 ? .thinking : .ready
                     self.sessions[sessionId] = session
-                    sessionLog("Discovered session from process: PID \(info.pid), TTY \(info.tty ?? "?")")
+                    sessionLog("Discovered session from process: PID \(info.pid), TTY \(info.tty ?? "?"), CPU \(info.cpuPercent)% → \(session.status.rawValue)")
                 }
             }
         }
@@ -119,21 +145,54 @@ class SessionManager {
             sessions.removeValue(forKey: sessionId)
             sessionLog("Removed dead session: \(sessionId)")
         }
+
+        // Re-infer status for sessions showing "ready" but with recently modified transcript.
+        // This catches sessions where hooks aren't firing or where discovery defaulted to ready.
+        let readySessions = sessions.filter { $0.value.status == .ready && $0.value.pid != nil }
+        if !readySessions.isEmpty {
+            DispatchQueue.global(qos: .utility).async { [weak self] in
+                let projectsDir = NSHomeDirectory() + "/.claude/projects"
+                guard let projectDirs = try? FileManager.default.contentsOfDirectory(atPath: projectsDir) else { return }
+
+                for (sessionId, _) in readySessions {
+                    for dir in projectDirs {
+                        let transcriptPath = "\(projectsDir)/\(dir)/\(sessionId).jsonl"
+                        guard let attrs = try? FileManager.default.attributesOfItem(atPath: transcriptPath),
+                              let modDate = attrs[.modificationDate] as? Date else { continue }
+
+                        // Only re-infer if transcript was modified in last 15 seconds
+                        guard Date().timeIntervalSince(modDate) < 15 else { break }
+
+                        let status = Self.inferStatusFromFile(transcriptPath)
+                        if status != .ready {
+                            DispatchQueue.main.async {
+                                if self?.sessions[sessionId]?.status == .ready {
+                                    self?.sessions[sessionId]?.status = status
+                                    sessionLog("Re-inferred status for \(sessionId): \(status.rawValue)")
+                                }
+                            }
+                        }
+                        break
+                    }
+                }
+            }
+        }
     }
 
     private struct DiscoveredProcess {
         let pid: Int
         let tty: String?
         let cwd: String
+        let cpuPercent: Double
     }
 
     /// Scan running processes for claude/ducc instances (called on background thread)
     private static func scanProcessList() -> [DiscoveredProcess] {
-        // Use a single shell command to get PID, TTY for all claude processes
+        // Use a single shell command to get PID, TTY, %CPU for all claude processes
         let pipe = Pipe()
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: "/bin/sh")
-        proc.arguments = ["-c", "ps -eo pid,tty,command | grep '/claude' | grep -v grep | grep -v vibecode-bridge | grep -v claude-go | grep -E '\\-\\-settings|\\-\\-dangerously|\\-\\-allow'"]
+        proc.arguments = ["-c", "ps -eo pid,tty,pcpu,command | grep '/claude' | grep -v grep | grep -v vibecode-bridge | grep -v claude-go | grep -E '\\-\\-settings|\\-\\-dangerously|\\-\\-allow'"]
         proc.standardOutput = pipe
         proc.standardError = FileHandle.nullDevice
         try? proc.run()
@@ -146,12 +205,13 @@ class SessionManager {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             guard !trimmed.isEmpty else { continue }
 
-            let parts = trimmed.split(separator: " ", maxSplits: 2, omittingEmptySubsequences: true)
-            guard parts.count >= 2, let pid = Int(parts[0]) else { continue }
+            let parts = trimmed.split(separator: " ", maxSplits: 3, omittingEmptySubsequences: true)
+            guard parts.count >= 3, let pid = Int(parts[0]) else { continue }
             guard kill(pid_t(pid), 0) == 0 else { continue }
 
             let tty = String(parts[1])
-            results.append(DiscoveredProcess(pid: pid, tty: tty != "??" ? tty : nil, cwd: "~"))
+            let cpu = Double(parts[2]) ?? 0
+            results.append(DiscoveredProcess(pid: pid, tty: tty != "??" ? tty : nil, cwd: "~", cpuPercent: cpu))
         }
 
         // Batch cwd lookup: single lsof call for all PIDs
@@ -159,7 +219,7 @@ class SessionManager {
             let pids = results.map { "\($0.pid)" }.joined(separator: ",")
             let cwdMap = batchGetCwd(pids: pids)
             results = results.map { proc in
-                DiscoveredProcess(pid: proc.pid, tty: proc.tty, cwd: cwdMap[proc.pid] ?? "~")
+                DiscoveredProcess(pid: proc.pid, tty: proc.tty, cwd: cwdMap[proc.pid] ?? "~", cpuPercent: proc.cpuPercent)
             }
         }
 
@@ -232,26 +292,57 @@ class SessionManager {
 
         // Clear stale pending permissions when session moves on.
         // If the user answered in the terminal (not via VibeCode), the pending permission
-        // was never resolved through our callback. Subsequent events prove Claude has moved on.
-        // Only clear permissions whose callback is already gone (truly stale).
-        // If callback still exists, the bridge is still blocking — permission is genuinely pending.
-        if message.eventType != .permissionRequest {
+        // was never resolved through our callback. Only events that PROVE Claude has moved
+        // past the permission request should trigger clearing:
+        // - PostToolUse/PostToolUseFailure: tool finished (user must have approved in terminal)
+        // - Stop: Claude finished responding entirely
+        // - UserPromptSubmit: user sent a new message
+        // - SessionStart: session restarted
+        // Do NOT clear on PreToolUse/SubagentStart etc. — these can race with PermissionRequest.
+        let clearEvents: Set<HookEventType> = [.postToolUse, .postToolUseFailure, .stop, .userPromptSubmit, .sessionStart]
+        if clearEvents.contains(message.eventType) {
             if let session = sessions[message.sessionId], !session.pendingPermissions.isEmpty {
-                let stale = session.pendingPermissions.filter { permissionCallbacks[$0.id] == nil }
-                if !stale.isEmpty {
-                    sessionLog("Clearing \(stale.count) stale pending permissions for session \(message.sessionId)")
-                    session.pendingPermissions.removeAll { permissionCallbacks[$0.id] == nil }
-                    if session.pendingPermissions.isEmpty && session.status == .waitingForApproval {
-                        session.status = .ready
+                sessionLog("Clearing \(session.pendingPermissions.count) stale pending permissions for session \(message.sessionId) (triggered by \(message.eventType.rawValue))")
+                // Unblock any bridge processes still waiting by sending a deny response
+                for perm in session.pendingPermissions {
+                    if let callback = permissionCallbacks.removeValue(forKey: perm.id) {
+                        sessionLog("Releasing dangling bridge for request \(perm.id)")
+                        callback(IPCResponse(id: perm.id, decision: "deny", reason: "Answered in terminal"))
                     }
                 }
+                session.pendingPermissions.removeAll()
+                // Don't set status here — let the event handler below set the correct state
+                // (e.g. stop → ready, userPromptSubmit → thinking, postToolUse → thinking)
             }
         }
 
         switch message.eventType {
         case .sessionStart:
-            let session = ClaudeSession(id: message.sessionId, cwd: message.cwd ?? "~")
-            sessions[message.sessionId] = session
+            // If ensureSession already upgraded a process- placeholder, preserve its PID/TTY
+            if let existing = sessions[message.sessionId], existing.pid != nil {
+                existing.status = .ready
+                existing.tty = message.tty ?? existing.tty
+                sessionLog("SessionStart: reused existing session \(message.sessionId) with PID \(existing.pid ?? -1)")
+            } else {
+                // Clean up any process- placeholder that matches this TTY
+                if let tty = message.tty,
+                   let (placeholderId, placeholder) = sessions.first(where: {
+                       $0.key.hasPrefix("process-") && $0.value.tty == tty
+                   }) {
+                    sessions.removeValue(forKey: placeholderId)
+                    placeholder.tty = tty
+                    placeholder.status = .ready
+                    sessions[message.sessionId] = placeholder
+                    sessionLog("SessionStart: upgraded placeholder \(placeholderId) to \(message.sessionId)")
+                } else {
+                    let session = ClaudeSession(id: message.sessionId, cwd: message.cwd ?? "~")
+                    session.tty = message.tty
+                    sessions[message.sessionId] = session
+                }
+            }
+            // Reset task state for new session
+            sessions[message.sessionId]?.tasks.removeAll()
+            sessions[message.sessionId]?.nextTaskId = 1
             CrashReporter.shared.addBreadcrumb(category: "session", message: "Session started: \(message.sessionId)")
 
         case .sessionEnd:
@@ -285,6 +376,15 @@ class SessionManager {
                 sessions[message.sessionId]?.lastToolOutput = summary
             }
 
+            // Task progress interception
+            if let toolName = message.toolName, let toolInput = message.toolInput {
+                if toolName == "TaskCreate" {
+                    handleTaskCreate(sessionId: message.sessionId, toolInput: toolInput)
+                } else if toolName == "TaskUpdate" {
+                    handleTaskUpdate(sessionId: message.sessionId, toolInput: toolInput)
+                }
+            }
+
         case .postToolUse, .postToolUseFailure:
             // Save tool summary before clearing
             if let tool = sessions[message.sessionId]?.currentTool,
@@ -299,7 +399,12 @@ class SessionManager {
             // lastToolOutput already set in PreToolUse
 
         case .stop:
-            sessions[message.sessionId]?.status = .ready
+            // Don't set to ready if subagents are still running
+            if let count = sessions[message.sessionId]?.subagentCount, count > 0 {
+                sessions[message.sessionId]?.status = .thinking
+            } else {
+                sessions[message.sessionId]?.status = .ready
+            }
             sessions[message.sessionId]?.currentTool = nil
             sessions[message.sessionId]?.currentToolInput = nil
             // Extract last assistant response from transcript
@@ -327,17 +432,24 @@ class SessionManager {
 
         case .subagentStart:
             sessions[message.sessionId]?.subagentCount += 1
+            // If session shows ready but agents are starting, it's actually working
+            if sessions[message.sessionId]?.status == .ready {
+                sessions[message.sessionId]?.status = .thinking
+            }
+            sessions[message.sessionId]?.lastActivity = Date()
 
         case .subagentStop:
             if let count = sessions[message.sessionId]?.subagentCount, count > 0 {
                 sessions[message.sessionId]?.subagentCount -= 1
             }
+            sessions[message.sessionId]?.lastActivity = Date()
 
         case .preCompact:
             sessions[message.sessionId]?.status = .compacting
 
         case .postCompact:
-            sessions[message.sessionId]?.status = .ready
+            // After compaction, Claude continues working — not idle
+            sessions[message.sessionId]?.status = .thinking
 
         case .notification:
             break
@@ -360,7 +472,13 @@ class SessionManager {
         for (_, session) in sessions {
             session.pendingPermissions.removeAll { $0.id == requestId }
             if session.pendingPermissions.isEmpty && session.status == .waitingForApproval {
-                session.status = .ready
+                // After approval, Claude continues executing — set to thinking
+                // After deny, Claude stops the tool — set to ready
+                if decision == "deny" {
+                    session.status = .ready
+                } else {
+                    session.status = .thinking
+                }
             }
         }
 
@@ -388,7 +506,8 @@ class SessionManager {
         for (_, session) in sessions {
             session.pendingPermissions.removeAll { $0.id == requestId }
             if session.pendingPermissions.isEmpty && session.status == .waitingForApproval {
-                session.status = .ready
+                // After answering a question, Claude continues working
+                session.status = .thinking
             }
         }
 
@@ -452,6 +571,55 @@ class SessionManager {
         default:
             return toolName
         }
+    }
+
+    // MARK: - Task Progress Tracking
+
+    private func handleTaskCreate(sessionId: String, toolInput: [String: AnyCodableValue]) {
+        guard let session = sessions[sessionId] else { return }
+        let subject = toolInput["subject"]?.stringValue ?? "Unknown task"
+        let activeForm = toolInput["activeForm"]?.stringValue
+
+        let taskId = String(session.nextTaskId)
+        session.nextTaskId += 1
+
+        let task = TaskItem(id: taskId, subject: subject, activeForm: activeForm)
+        session.tasks[taskId] = task
+        sessionLog("TaskCreate: session=\(sessionId) id=\(taskId) subject=\(subject)")
+    }
+
+    private func handleTaskUpdate(sessionId: String, toolInput: [String: AnyCodableValue]) {
+        guard let session = sessions[sessionId] else { return }
+        guard let taskId = toolInput["taskId"]?.stringValue else { return }
+
+        // Handle unknown task (VibeCode may have missed creates after restart)
+        if session.tasks[taskId] == nil {
+            let placeholder = TaskItem(id: taskId, subject: "Task #\(taskId)")
+            session.tasks[taskId] = placeholder
+            if let idNum = Int(taskId) {
+                session.nextTaskId = max(session.nextTaskId, idNum + 1)
+            }
+            sessionLog("TaskUpdate: created placeholder for unknown task \(taskId)")
+        }
+
+        if let statusStr = toolInput["status"]?.stringValue {
+            switch statusStr {
+            case "in_progress": session.tasks[taskId]?.status = .inProgress
+            case "completed": session.tasks[taskId]?.status = .completed
+            case "deleted": session.tasks[taskId]?.status = .deleted
+            case "pending": session.tasks[taskId]?.status = .pending
+            default: break
+            }
+        }
+
+        if let newSubject = toolInput["subject"]?.stringValue {
+            session.tasks[taskId]?.subject = newSubject
+        }
+        if let newActiveForm = toolInput["activeForm"]?.stringValue {
+            session.tasks[taskId]?.activeForm = newActiveForm
+        }
+
+        sessionLog("TaskUpdate: session=\(sessionId) id=\(taskId) status=\(toolInput["status"]?.stringValue ?? "?")")
     }
 
     // MARK: - Transcript Parsing

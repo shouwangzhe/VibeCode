@@ -86,6 +86,10 @@ struct CollapsedView: View {
 
         switch session.status {
         case .runningTool:
+            if let task = session.currentTask {
+                let s = session.taskSummary
+                return "[\(s.completed)/\(s.total)] \(truncateForDisplay(task.displayText, maxLength: 40))" + countSuffix
+            }
             if let operation = session.currentOperation {
                 return operation + countSuffix
             }
@@ -95,6 +99,10 @@ struct CollapsedView: View {
             return "Running tool..." + countSuffix
 
         case .thinking:
+            if let task = session.currentTask {
+                let s = session.taskSummary
+                return "[\(s.completed)/\(s.total)] \(truncateForDisplay(task.displayText, maxLength: 40))" + countSuffix
+            }
             if let prompt = session.lastUserPrompt {
                 return truncateForDisplay(prompt) + countSuffix
             }

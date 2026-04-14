@@ -3,6 +3,7 @@ import SwiftUI
 struct SettingsView: View {
 
     @State private var launchAtLogin = LaunchAtLoginService.shared.isEnabled
+    @State private var autoApprove = UserDefaults.standard.bool(forKey: "autoApprovePermissions")
     @State private var soundsEnabled = SoundService.shared.isEnabled
     @State private var soundVolume = SoundService.shared.volume
     @State private var sessionStartSound = SoundService.shared.preferences.sessionStart
@@ -45,6 +46,15 @@ struct SettingsView: View {
                                     launchAtLogin = !newValue
                                 }
                             }
+
+                        Toggle("Auto-Approve All Permissions", isOn: $autoApprove)
+                            .onChange(of: autoApprove) { _, newValue in
+                                UserDefaults.standard.set(newValue, forKey: "autoApprovePermissions")
+                                SessionManager.shared?.autoApprove = newValue
+                            }
+                        Text("Automatically allow all tool permission requests")
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
                     }
                     .padding(8)
                 }

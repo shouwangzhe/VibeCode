@@ -44,6 +44,7 @@
 		AD21C2B2A630E4584AE4932D /* NotchContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86648E4BAB4F31BB6F0C19F9 /* NotchContentView.swift */; };
 		B691BE4A48968631ADAA6985 /* CrashReporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9A8775E67997164CADBC516 /* CrashReporter.swift */; };
 		C17A13B74FDB7F2D84B17950 /* SoundPack.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2695EA784A60EEE9299B4071 /* SoundPack.swift */; };
+		BB1234567890ABCDEF123456 /* TaskItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1234567890ABCDEF123456 /* TaskItem.swift */; };
 		C975BACBFB3BFE2EA84F5C73 /* NotchPanelController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60BF06CA4F12598B02983EDD /* NotchPanelController.swift */; };
 		CCF1E05525CA87CD4DA73020 /* Constants.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95A6733532A4996A4D462C60 /* Constants.swift */; };
 		CE42E87B7543E4E7E672FED6 /* EventParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = F721EED388A65B5B1A63AC13 /* EventParser.swift */; };
@@ -64,6 +65,7 @@
 		072A8532905109625AE9CC30 /* AskUserQuestionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AskUserQuestionView.swift; sourceTree = "<group>"; };
 		1A8E14D3D8465796B1BE8AB4 /* PermissionRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionRequest.swift; sourceTree = "<group>"; };
 		2695EA784A60EEE9299B4071 /* SoundPack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoundPack.swift; sourceTree = "<group>"; };
+		AA1234567890ABCDEF123456 /* TaskItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskItem.swift; sourceTree = "<group>"; };
 		28E7FAFA15530C07CD33482C /* SessionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionManager.swift; sourceTree = "<group>"; };
 		2C09E8CE588F8845A890A098 /* TerminalService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalService.swift; sourceTree = "<group>"; };
 		2FFF58F1FB76936E560017A6 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
@@ -255,6 +257,7 @@
 				1A8E14D3D8465796B1BE8AB4 /* PermissionRequest.swift */,
 				B6F7947CD50AC598BE012640 /* RemoteSource.swift */,
 				2695EA784A60EEE9299B4071 /* SoundPack.swift */,
+				AA1234567890ABCDEF123456 /* TaskItem.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -395,6 +398,7 @@
 				3AEF0AB50438F1EE83247377 /* SessionRowView.swift in Sources */,
 				9FBCAFAFD84F221CFB6AE033 /* SettingsView.swift in Sources */,
 				C17A13B74FDB7F2D84B17950 /* SoundPack.swift in Sources */,
+				BB1234567890ABCDEF123456 /* TaskItem.swift in Sources */,
 				E319F191892F107D65B819AB /* SoundPackStore.swift in Sources */,
 				D44D206BDEA91BCD989381C2 /* SoundService.swift in Sources */,
 				E0CB4B714FB31DA1F8BFFA0D /* TerminalService.swift in Sources */,

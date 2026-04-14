@@ -151,6 +151,19 @@ class IPCServer {
     private func processMessage(_ message: IPCMessage, clientSocket: Int32) {
         ipcLog("[IPC] Event: \(message.eventType.rawValue) session=\(message.sessionId) tool=\(message.toolName ?? "nil") input=\(message.toolInput?.description ?? "nil")")
 
+        // Auto-approve: respond immediately without showing UI
+        if message.eventType == .permissionRequest && sessionManager.autoApprove {
+            ipcLog("[IPC] Auto-approving request \(message.id)")
+            let resp = IPCResponse(id: message.id, decision: "always_allow", reason: nil)
+            if let respData = try? JSONEncoder().encode(resp) {
+                sendLengthPrefixed(data: respData, to: clientSocket)
+            }
+            DispatchQueue.main.async { [weak self] in
+                self?.sessionManager.handleEvent(message)
+            }
+            return
+        }
+
         DispatchQueue.main.async { [weak self] in
             self?.sessionManager.handleEvent(message)
 

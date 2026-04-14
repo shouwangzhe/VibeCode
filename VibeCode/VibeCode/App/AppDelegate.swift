@@ -12,6 +12,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Ignore SIGPIPE to prevent crash when writing to closed sockets
         signal(SIGPIPE, SIG_IGN)
 
+        SessionManager.shared = sessionManager
         CrashReporter.shared.initialize()
 
         setupStatusItem()

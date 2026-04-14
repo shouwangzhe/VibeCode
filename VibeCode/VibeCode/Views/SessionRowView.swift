@@ -82,6 +82,34 @@ struct SessionRowView: View {
                             .lineLimit(1)
                     }
 
+                    // Task progress (if any tasks exist)
+                    if session.taskSummary.total > 0 {
+                        let summary = session.taskSummary
+                        let task = session.currentTask
+                        HStack(spacing: 4) {
+                            if summary.completed == summary.total {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .font(.system(size: 10))
+                                    .foregroundColor(.green.opacity(0.7))
+                            } else {
+                                Image(systemName: "circle.dotted")
+                                    .font(.system(size: 10))
+                                    .foregroundColor(.cyan.opacity(0.7))
+                            }
+
+                            Text("\(summary.completed)/\(summary.total)")
+                                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                .foregroundColor(.white.opacity(0.6))
+
+                            if let task = task {
+                                Text(task.displayText)
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.cyan.opacity(0.7))
+                                    .lineLimit(1)
+                            }
+                        }
+                    }
+
                     // Claude output: assistant response, last tool summary, or current operation
                     if session.status == .ready, let response = session.lastAssistantResponse, !response.isEmpty {
                         Text("AI: \(response)")
