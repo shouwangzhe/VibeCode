@@ -15,10 +15,19 @@ enum VibeCodeConstants {
     static let duccProjectsPath = NSHomeDirectory() + "/.ducc/projects"
     static var allProjectsPaths: [String] { [claudeProjectsPath, duccProjectsPath] }
 
-    /// Encode a cwd path to the directory name format used by transcript storage
-    /// e.g. "/Users/foo/bar" -> "-Users-foo-bar"
+    /// Encode a cwd path to the directory name format used by Claude Code transcript storage.
+    /// Claude Code replaces all non-alphanumeric characters (/, _, spaces, etc.) with "-".
+    /// e.g. "/Users/foo/my_project" -> "-Users-foo-my-project"
     static func encodedProjectDir(for cwd: String) -> String {
-        cwd.replacingOccurrences(of: "/", with: "-")
+        var result = ""
+        for char in cwd {
+            if char.isLetter || char.isNumber {
+                result.append(char)
+            } else {
+                result.append("-")
+            }
+        }
+        return result
     }
 
     // Panel dimensions

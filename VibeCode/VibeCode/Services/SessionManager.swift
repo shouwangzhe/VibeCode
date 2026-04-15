@@ -161,16 +161,32 @@ class SessionManager {
         for (sessionId, session) in sessions where
             !session.hasActiveHooks &&
             !session.isTranscriptWatching &&
-            !sessionId.hasPrefix("process-") &&
             session.status != .ended &&
             Date().timeIntervalSince(session.startedAt) > 15
         {
-            if let path = findTranscriptPath(sessionId: sessionId, cwd: session.cwd) {
-                session.transcriptPath = path
-                session.isTranscriptWatching = true
-                let offset = Self.fileSize(at: path)
-                transcriptWatcher?.startWatching(sessionId: sessionId, transcriptPath: path, initialOffset: offset)
-                sessionLog("Started transcript watching for hookless session \(sessionId)")
+            if sessionId.hasPrefix("process-") {
+                // process- placeholder: find the most recently modified transcript for this CWD
+                // and upgrade the placeholder to the real sessionId
+                if let (realId, path) = findMostRecentTranscript(cwd: session.cwd) {
+                    // Don't upgrade if real sessionId is already tracked
+                    guard sessions[realId] == nil else { continue }
+                    // Upgrade placeholder → real sessionId
+                    sessions.removeValue(forKey: sessionId)
+                    sessions[realId] = session
+                    session.transcriptPath = path
+                    session.isTranscriptWatching = true
+                    let offset = Self.fileSize(at: path)
+                    transcriptWatcher?.startWatching(sessionId: realId, transcriptPath: path, initialOffset: offset)
+                    sessionLog("Upgraded \(sessionId) to \(realId) via transcript, started watching at offset \(offset)")
+                }
+            } else {
+                if let path = findTranscriptPath(sessionId: sessionId, cwd: session.cwd) {
+                    session.transcriptPath = path
+                    session.isTranscriptWatching = true
+                    let offset = Self.fileSize(at: path)
+                    transcriptWatcher?.startWatching(sessionId: sessionId, transcriptPath: path, initialOffset: offset)
+                    sessionLog("Started transcript watching for hookless session \(sessionId)")
+                }
             }
         }
 
@@ -681,6 +697,39 @@ class SessionManager {
     }
 
     // MARK: - Transcript Path Discovery
+
+    /// Find the most recently modified transcript in the project directory matching a CWD.
+    /// Used for process- placeholder sessions that don't have a real sessionId yet.
+    /// Returns (sessionId, filePath) if found.
+    private func findMostRecentTranscript(cwd: String) -> (String, String)? {
+        let fm = FileManager.default
+        let encodedDir = VibeCodeConstants.encodedProjectDir(for: cwd)
+
+        var bestFile: (sessionId: String, path: String, modDate: Date)?
+
+        for basePath in VibeCodeConstants.allProjectsPaths {
+            let projectDir = "\(basePath)/\(encodedDir)"
+            guard let files = try? fm.contentsOfDirectory(atPath: projectDir) else { continue }
+
+            for file in files where file.hasSuffix(".jsonl") {
+                let path = "\(projectDir)/\(file)"
+                guard let attrs = try? fm.attributesOfItem(atPath: path),
+                      let modDate = attrs[.modificationDate] as? Date else { continue }
+
+                // No time cutoff — the process is confirmed alive via `ps`, so we
+                // always pick the most recently modified transcript for this CWD.
+                let sessionId = String(file.dropLast(6)) // remove ".jsonl"
+                if bestFile == nil || modDate > bestFile!.modDate {
+                    bestFile = (sessionId: sessionId, path: path, modDate: modDate)
+                }
+            }
+        }
+
+        if let best = bestFile {
+            return (best.sessionId, best.path)
+        }
+        return nil
+    }
 
     /// Find the transcript JSONL file for a given session
     private func findTranscriptPath(sessionId: String, cwd: String) -> String? {
